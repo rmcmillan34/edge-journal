@@ -5,7 +5,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 
-COPY VERSION /app/VERSION
+ARG VERSION="0.0.0-dev"
+ENV NEXT_PUBLIC_APP_VERSION="${VERSION}"
+RUN printf "%s" "${NEXT_PUBLIC_APP_VERSION}" > /app/VERSION
+
 # Build-time env for Next.js
 ARG VERSION
 ENV NEXT_PUBLIC_APP_VERSION=${VERSION}

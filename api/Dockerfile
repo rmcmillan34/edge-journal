@@ -14,9 +14,11 @@ RUN pip install --no-cache-dir \
     passlib[argon2] python-jose[cryptography] \
     email-validator python-multipart
 
+ARG VERSION="0.0.0-dev"
+ENV APP_VERSION="${VERSION}"
+RUN printf "%s" "${APP_VERSION}" > /app/VERSION
 
-# Copy only the API app
-COPY VERSION /app/VERSION
+
 COPY app /app/app
 COPY tests /app/tests
 COPY pyproject.toml /app/pyproject.toml
