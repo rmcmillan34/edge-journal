@@ -1,0 +1,41 @@
+name: edge-journal
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-edge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edge}
+      POSTGRES_DB: ${POSTGRES_DB:-edgejournal}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-edge} -d ${POSTGRES_DB:-edgejournal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    image: ghcr.io/${EDGEJ_OWNER:-youruser}/edge-journal-api:${EDGEJ_VERSION:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://${POSTGRES_USER:-edge}:${POSTGRES_PASSWORD:-edge}@db:5432/${POSTGRES_DB:-edgejournal}}
+      APP_VERSION: ${EDGEJ_VERSION:-latest}
+    ports:
+      - "8000:8000"
+
+  web:
+    image: ghcr.io/${EDGEJ_OWNER:-youruser}/edge-journal-web:${EDGEJ_VERSION:-latest}
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+
+volumes:
+  db_data: {}
