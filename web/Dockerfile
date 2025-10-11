@@ -5,6 +5,11 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 
+COPY VERSION /app/VERSION
+# Build-time env for Next.js
+ARG VERSION
+ENV NEXT_PUBLIC_APP_VERSION=${VERSION}
+
 COPY . .
 EXPOSE 3000
 CMD ["npm", "run", "dev"]

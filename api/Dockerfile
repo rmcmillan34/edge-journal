@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
 
 
 # Copy only the API app
+COPY VERSION /app/VERSION
 COPY app /app/app
 COPY tests /app/tests
 COPY pyproject.toml /app/pyproject.toml
