@@ -1,0 +1,9 @@
+[project]
+name = "edge-journal-api"
+version = "0.1.0"
+description = "Edge-Journal API (FastAPI)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]

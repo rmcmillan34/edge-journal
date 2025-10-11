@@ -1,0 +1,37 @@
+services:
+  api:
+    build: ./api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./api:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=dev
+      - PYTHONPATH=/app
+    env_file:
+      - api/.env
+
+  web:
+    build: ./web
+    command: npm run dev
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: edge
+      POSTGRES_PASSWORD: edge
+      POSTGRES_DB: edgejournal
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+
+volumes:
+  dbdata:
