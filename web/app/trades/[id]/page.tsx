@@ -69,7 +69,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       const r = await fetch(`${API_BASE}/trades/${params.id}`, { method:'PATCH', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify({ notes_md: notes, post_analysis_md: postNotes })});
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Save failed: ${r.status}`); }
       await reload();
-      try{ (await import('../../components/Toaster')).toast('Notes saved','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Notes saved','success'); }catch{}
       setTab('overview');
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setSaving(false); }
@@ -120,7 +120,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       setFiles(null);
       setAttMeta({ timeframe:"", state:"", view:"", caption:"", reviewed:false });
       await reload();
-      try{ (await import('../../components/Toaster')).toast('Attachments uploaded','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Attachments uploaded','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setSaving(false); }
   }
@@ -131,7 +131,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       const r = await fetch(`${API_BASE}/trades/${params.id}/attachments/${id}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` }});
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
       await reload();
-      try{ (await import('../../components/Toaster')).toast('Attachment deleted','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Attachment deleted','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
   }
 
@@ -144,7 +144,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       const r = await fetch(`${API_BASE}/trades/${params.id}/attachments/batch-delete`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(attSel) });
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
       await reload(); setAttSel([]);
-      try{ (await import('../../components/Toaster')).toast('Deleted selected attachments','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Deleted selected attachments','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
   }
 
@@ -161,7 +161,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       const r = await fetch(`${API_BASE}/trades/${params.id}/attachments/reorder`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(order) });
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Reorder failed: ${r.status}`); }
       await reload();
-      try{ (await import('../../components/Toaster')).toast('Reordered attachments','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Reordered attachments','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
   }
 

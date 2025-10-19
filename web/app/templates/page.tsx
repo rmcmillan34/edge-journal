@@ -25,7 +25,7 @@ export default function TemplatesPage(){
       const r = await fetch(`${API_BASE}/templates?target=${target}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Failed: ${r.status}`);
       setItems(Array.isArray(j) ? j : []);
-    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Failed','error'); }catch{} }
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../../components/Toaster')).toast(e.message||'Failed','error'); }catch{} }
     finally{ setLoading(false); }
   }
 
@@ -55,7 +55,7 @@ export default function TemplatesPage(){
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Create failed: ${r.status}`);
       setName(""); setSections([{ heading:"", default_included:true, placeholder:"" }]);
       await load();
-    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Create failed','error'); }catch{} }
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../../components/Toaster')).toast(e.message||'Create failed','error'); }catch{} }
   }
 
   async function saveTemplate(t: Template){
@@ -67,8 +67,8 @@ export default function TemplatesPage(){
       });
       const j = await r.json().catch(()=>({})); if (!r.ok) throw new Error(j.detail || `Save failed: ${r.status}`);
       await load();
-      try{ (await import('../components/Toaster')).toast('Template saved','success'); }catch{}
-    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Save failed','error'); }catch{} }
+      try{ (await import('../../components/Toaster')).toast('Template saved','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../../components/Toaster')).toast(e.message||'Save failed','error'); }catch{} }
   }
 
   async function deleteTemplate(id:number){
@@ -77,8 +77,8 @@ export default function TemplatesPage(){
       const r = await fetch(`${API_BASE}/templates/${id}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` }});
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
       await load();
-      try{ (await import('../components/Toaster')).toast('Template deleted','success'); }catch{}
-    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Delete failed','error'); }catch{} }
+      try{ (await import('../../components/Toaster')).toast('Template deleted','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../../components/Toaster')).toast(e.message||'Delete failed','error'); }catch{} }
   }
 
   function updateItem(idx:number, patch: Partial<Template>){

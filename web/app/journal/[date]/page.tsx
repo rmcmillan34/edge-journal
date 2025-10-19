@@ -55,7 +55,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       const r = await fetch(`${API_BASE}/journal/${d}`, { method:'PUT', headers, body: JSON.stringify({ title, notes_md: notes }) });
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Save failed: ${r.status}`);
       setData(j); setSelected(j.trade_ids || []);
-      try{ (await import('../../components/Toaster')).toast('Journal saved','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Journal saved','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setSaving(false); }
   }
@@ -94,7 +94,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       const headers:any = {}; if (token) headers.Authorization = `Bearer ${token}`;
       const r = await fetch(`${API_BASE}/journal/${d}`, { method:'DELETE', headers });
       const j = await r.json().catch(()=>({})); if (!r.ok) throw new Error(j.detail || `Delete failed: ${r.status}`);
-      try{ (await import('../../components/Toaster')).toast('Journal deleted','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Journal deleted','success'); }catch{}
       window.location.href = '/dashboard';
     }catch(e:any){ setError(e.message || String(e)); }
   }
@@ -107,7 +107,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       const headers:any = { 'Content-Type':'application/json' }; if (token) headers.Authorization = `Bearer ${token}`;
       const r = await fetch(`${API_BASE}/journal/${data.id}/trades`, { method:'POST', headers, body: JSON.stringify(selected) });
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Link failed: ${r.status}`);
-      try{ (await import('../../components/Toaster')).toast('Linked trades saved','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Linked trades saved','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setSaving(false); }
   }
@@ -139,7 +139,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       setFiles(null);
       setAttMeta({ timeframe:"", state:"", view:"", caption:"", reviewed:false });
       await loadAtts(data.id);
-      try{ (await import('../../components/Toaster')).toast('Attachments uploaded','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Attachments uploaded','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setSaving(false); }
   }
@@ -150,7 +150,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       const r = await fetch(`${API_BASE}/journal/${data.id}/attachments/${id}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` }});
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
       await loadAtts(data.id);
-      try{ (await import('../../components/Toaster')).toast('Attachment deleted','success'); }catch{}
+      try{ (await import('../../../components/Toaster')).toast('Attachment deleted','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
   }
 
