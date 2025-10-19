@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: up down logs fmt lint test api web
+.PHONY: up down logs fmt lint test api web build-api migrate
 
 up:
 	docker compose up --build
@@ -17,10 +17,20 @@ lint:
 	docker compose run --rm api ruff check .
 
 test:
-	docker compose run --rm api pytest -q
+	docker compose build api
+	# Run migrations and tests in the same container so the SQLite file persists
+	docker compose run --rm -e DATABASE_URL=sqlite:////tmp/test.db -e PYTHONPATH=/app api bash -lc "alembic upgrade head && pytest -q"
+
+build-api:
+	docker compose build api
 
 api:
 	docker compose run --rm api bash
 
 web:
 	docker compose run --rm web bash
+
+migrate:
+	# Ensure DB is up and run Alembic against Postgres in compose
+	docker compose up -d db
+	docker compose run --rm -e PYTHONPATH=/app -e DATABASE_URL=postgresql+psycopg2://edge:edge@db:5432/edgejournal api alembic upgrade head

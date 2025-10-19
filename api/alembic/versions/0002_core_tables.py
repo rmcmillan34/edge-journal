@@ -56,8 +56,8 @@ def upgrade():
         sa.Column("source_upload_id", sa.Integer, sa.ForeignKey("uploads.id"), nullable=True),
         sa.Column("trade_key", sa.String(length=256), nullable=False),
         sa.Column("version", sa.Integer, nullable=False, server_default="1"),
+        sa.UniqueConstraint("trade_key", name="uq_trades_tradekey"),
     )
-    op.create_unique_constraint("uq_trades_tradekey", "trades", ["trade_key"])
     op.create_index("ix_trades_open_time", "trades", ["open_time_utc"])
     op.create_index("ix_trades_close_time", "trades", ["close_time_utc"])
 

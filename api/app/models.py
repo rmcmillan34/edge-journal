@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, func, Boolean, ForeignKey, UniqueConstraint, Float
+from sqlalchemy import Column, Integer, String, DateTime, func, Boolean, ForeignKey, UniqueConstraint, Float, Text
 from sqlalchemy.orm import relationship
 from .db import Base
 
@@ -37,11 +37,18 @@ class Upload(Base):
     """
     __tablename__ = "uploads"
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=True, index=True)
     filename = Column(String(255), nullable=False)
     preset = Column(String(64), nullable=True)
     file_hash = Column(String(64), nullable=True)  # optional, for idempotency later
     status = Column(String(32), nullable=False, default="committed")  # or "dry-run"
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    inserted_count = Column(Integer, nullable=False, default=0)
+    updated_count = Column(Integer, nullable=False, default=0)
+    skipped_count = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+    errors_json = Column(Text, nullable=True)
+    tz = Column(String(64), nullable=True)
 
 
 # --- Minimal stubs (real fields later) ---
@@ -58,6 +65,7 @@ class Account(Base):
     """
     __tablename__ = "accounts"
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=True, index=True)
     name = Column(String(120), nullable=False)
     broker_label = Column(String(120), nullable=True)
     base_ccy = Column(String(12), nullable=True)
@@ -131,3 +139,14 @@ class Trade(Base):
     __table_args__ = (
         UniqueConstraint("trade_key", name="uq_trades_tradekey"),
     )
+
+
+class MappingPreset(Base):
+    __tablename__ = "mapping_presets"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    headers_json = Column(Text, nullable=False)
+    mapping_json = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_mapping_presets_user_name"),)

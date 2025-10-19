@@ -10,3 +10,4 @@ pytest.cache/
 *.pyc
 *.pyo
 .DS_Store
+api/dev.db

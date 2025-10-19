@@ -10,3 +10,9 @@
 - M7: Reports + filter builder
 - M8: Forex & Futures
 - M9 (Stretch): Insight Coach
+
+## Stretch Ideas
+
+- Dashboard data export: one-click CSV for the currently selected month (date, daily net PnL, equity), honoring symbol/account/tz filters.
+- Trades export polish: export full result set via streaming when filters exceed client limit.
+- UI niceties: loading skeletons for KPI tiles/calendar; sticky headers for long tables across the app.
