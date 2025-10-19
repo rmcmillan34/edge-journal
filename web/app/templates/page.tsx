@@ -25,7 +25,7 @@ export default function TemplatesPage(){
       const r = await fetch(`${API_BASE}/templates?target=${target}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Failed: ${r.status}`);
       setItems(Array.isArray(j) ? j : []);
-    }catch(e:any){ setError(e.message || String(e)); }
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Failed','error'); }catch{} }
     finally{ setLoading(false); }
   }
 
@@ -34,6 +34,13 @@ export default function TemplatesPage(){
   }
   function addSection(){ setSections(prev => [...prev, { heading:"", default_included:true, placeholder:"" }]); }
   function removeSection(idx:number){ setSections(prev => prev.filter((_,i)=> i!==idx)); }
+  function onDragStartNew(e: React.DragEvent<HTMLDivElement>, idx:number){ e.dataTransfer.setData('text/plain', String(idx)); }
+  function onDropNew(e: React.DragEvent<HTMLDivElement>, idx:number){
+    const from = parseInt(e.dataTransfer.getData('text/plain'),10);
+    if (Number.isNaN(from) || from===idx) return;
+    setSections(prev => { const arr = prev.slice(); const [m]=arr.splice(from,1); arr.splice(idx,0,m); return arr; });
+  }
+  function onDragOverNew(e: React.DragEvent){ e.preventDefault(); }
 
   async function createTemplate(){
     if (!token){ setError('Login required'); return; }
@@ -48,7 +55,7 @@ export default function TemplatesPage(){
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Create failed: ${r.status}`);
       setName(""); setSections([{ heading:"", default_included:true, placeholder:"" }]);
       await load();
-    }catch(e:any){ setError(e.message || String(e)); }
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Create failed','error'); }catch{} }
   }
 
   async function saveTemplate(t: Template){
@@ -60,7 +67,8 @@ export default function TemplatesPage(){
       });
       const j = await r.json().catch(()=>({})); if (!r.ok) throw new Error(j.detail || `Save failed: ${r.status}`);
       await load();
-    }catch(e:any){ setError(e.message || String(e)); }
+      try{ (await import('../components/Toaster')).toast('Template saved','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Save failed','error'); }catch{} }
   }
 
   async function deleteTemplate(id:number){
@@ -69,7 +77,8 @@ export default function TemplatesPage(){
       const r = await fetch(`${API_BASE}/templates/${id}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` }});
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
       await load();
-    }catch(e:any){ setError(e.message || String(e)); }
+      try{ (await import('../components/Toaster')).toast('Template deleted','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); try{ (await import('../components/Toaster')).toast(e.message||'Delete failed','error'); }catch{} }
   }
 
   function updateItem(idx:number, patch: Partial<Template>){
@@ -112,7 +121,7 @@ export default function TemplatesPage(){
           <div>
             <div style={{fontWeight:600, marginBottom:6}}>Sections</div>
             {(sections||[]).map((s, idx) => (
-              <div key={idx} style={{display:'grid', gridTemplateColumns:'1fr 120px 1fr auto', gap:8, alignItems:'center', marginBottom:6}}>
+              <div key={idx} draggable onDragStart={e=>onDragStartNew(e, idx)} onDragOver={onDragOverNew} onDrop={e=>onDropNew(e, idx)} style={{display:'grid', gridTemplateColumns:'1fr 120px 1fr auto', gap:8, alignItems:'center', marginBottom:6}}>
                 <input placeholder="Heading" value={s.heading} onChange={e=>updateSection(idx,{ heading:e.target.value })} />
                 <label style={{display:'flex', alignItems:'center', gap:6}}>
                   <input type="checkbox" checked={!!s.default_included} onChange={e=>updateSection(idx,{ default_included:e.target.checked })} /> Default
@@ -146,7 +155,13 @@ export default function TemplatesPage(){
                 <div style={{marginTop:8}}>
                   <div style={{fontWeight:600, marginBottom:6}}>Sections</div>
                   {t.sections.map((s, sidx) => (
-                    <div key={sidx} style={{display:'grid', gridTemplateColumns:'1fr 120px 1fr auto', gap:8, alignItems:'center', marginBottom:6}}>
+                    <div key={sidx} draggable onDragStart={e=>{ e.dataTransfer.setData('text/plain', String(sidx)); }} onDragOver={e=>e.preventDefault()} onDrop={e=>{
+                      const from = parseInt(e.dataTransfer.getData('text/plain'),10);
+                      if (Number.isNaN(from) || from===sidx) return;
+                      setItems(prev => prev.map((tt,ii)=>{
+                        if (ii!==i) return tt; const arr = tt.sections.slice(); const [m]=arr.splice(from,1); arr.splice(sidx,0,m); return { ...tt, sections: arr } as any;
+                      }));
+                    }} style={{display:'grid', gridTemplateColumns:'1fr 120px 1fr auto', gap:8, alignItems:'center', marginBottom:6}}>
                       <input placeholder="Heading" value={s.heading} onChange={e=>updateItemSection(i, sidx, { heading:e.target.value })} />
                       <label style={{display:'flex', alignItems:'center', gap:6}}>
                         <input type="checkbox" checked={!!s.default_included} onChange={e=>updateItemSection(i, sidx, { default_included:e.target.checked })} /> Default
@@ -166,4 +181,3 @@ export default function TemplatesPage(){
     </main>
   );
 }
-

@@ -1,83 +1,62 @@
-Edge‑Journal — Next Session Context (M4 kickoff)
+Edge‑Journal — Next Session Context (M4 Templates + Journal)
 
-Version: v0.3.0 (M3 complete, starting M4)
+Version: 0.4.1 (M4 in progress)
 
-What’s Done (high level)
-- M2: CSV import (preview/commit), presets, per‑upload timezone, imports history, error CSV, user scoping.
-- M3: Dashboard KPIs + equity, calendar (by day), tz-aware metrics, Trades filters/date presets/sorting/pagination/page size, typable dropdowns (symbol/account), manual add, journal notes, delete + undo, CSV export, sticky headers.
+Delivered in M4 so far
+- Attachments: EXIF strip + PNG/JPEG thumbnails; trade attachments list/reorder/batch delete; journal attachments CRUD.
+- Daily Journal: `/journal/YYYY-MM-DD` with title + Markdown notes, link trades, delete journal; calendar shows 📝 + blue dot; configurable week start (Mon default).
+- Templates: backend CRUD (`/templates`), storage with sections; apply templates in Trade and Daily editors; Templates management UI at `/templates`.
+- Metrics: includes `unreviewed_count`; Dashboard shows KPI.
 
-Key Web Routes
-- `/upload` → CSV preview/commit (tz, mapping, presets, save_as)
-- `/uploads` and `/uploads/[id]` → history + error CSV + delete
-- `/trades` → list with filters (symbol/account/start/end), date presets, sort, pagination, add, journal inline
-- `/trades/[id]` → Trade Detail (Overview, Notes, Attachments)
-- `/dashboard` → KPIs, all‑time equity curve (tooltip), month calendar (click → trades day)
-
-Key API Endpoints
+Key API Endpoints (current)
 - Health/version: `GET /health`, `GET /version`, `GET /me`
-- Metrics: `GET /metrics?start=YYYY-MM-DD&end=YYYY-MM-DD&symbol=&account=&tz=` (tz is IANA)
-- Trades:
-  - `GET /trades?start=&end=&symbol=&account=&limit=&offset=&sort=`
-  - `POST /trades` (manual create; fields: account_id|account_name, symbol, side, open_time, close_time?, qty_units, entry_price, exit_price?, fees?, net_pnl?, notes_md?, tz?)
-  - `PATCH /trades/{id}` (notes_md, post_analysis_md, fees, net_pnl, reviewed)
-  - `DELETE /trades/{id}` → returns `{ restore_payload: {...} }` for undo
-  - `GET /trades/{id}` → TradeDetailOut (attachments included)
-  - Attachments:
-    - `POST /trades/{id}/attachments` (multipart: file, timeframe, state, view, caption, reviewed)
-    - `GET /trades/{id}/attachments` (list)
-    - `GET /trades/{id}/attachments/{att_id}/download`
-    - `DELETE /trades/{id}/attachments/{att_id}`
-  - `GET /trades/symbols?account=` → distinct symbols for user
-- Uploads:
-  - `POST /uploads` (initial header parse)
-  - `POST /uploads/preview` (mapping/preset/tz)
-  - `POST /uploads/commit` (mapping/preset/account/tz/save_as)
-  - `GET /uploads`, `DELETE /uploads/{id}`, `GET /uploads/{id}/errors.csv`
-- Accounts/Presets: `GET/POST /accounts`, `GET/POST /presets`
+- Metrics: `GET /metrics?start=&end=&symbol=&account=&tz=` returns KPIs + equity + `unreviewed_count`.
+- Trades: `GET /trades`, `POST /trades`, `PATCH /trades/{id}`, `DELETE /trades/{id}`, `GET /trades/{id}`
+  - Attachments: `POST/GET /trades/{id}/attachments`, `GET /trades/{id}/attachments/{att_id}/download`, `GET /trades/{id}/attachments/{att_id}/thumb`, `DELETE /trades/{id}/attachments/{att_id}`, `POST /trades/{id}/attachments/reorder`, `POST /trades/{id}/attachments/batch-delete`.
+- Journal: `GET /journal/dates?start&end`, `GET/PUT/DELETE /journal/{YYYY-MM-DD}`
+  - Journal attachments: `GET/POST /journal/{jid}/attachments`, `GET /journal/{jid}/attachments/{att_id}/download|thumb`, `DELETE /journal/{jid}/attachments/{att_id}`.
+- Templates: `GET /templates?target=trade|daily`, `POST /templates`, `PATCH /templates/{id}`, `DELETE /templates/{id}`.
+
+Web Routes (current)
+- `/dashboard`: KPIs, equity curve, calendar (Mon default, configurable Mon/Sun), journal indicators.
+- `/trades` and `/trades/[id]`: list and detail; notes editor supports applying templates; attachments UI with thumbs, reorder, batch delete.
+- `/journal/[date]`: daily notes editor, link trades, attachments, delete journal; apply templates (daily target).
+- `/templates`: manage templates (create/edit/delete; drag-reorder sections; placeholders; defaults).
 
 Environment / Config
-- Web: `NEXT_PUBLIC_API_BASE` (default `http://localhost:8000`), `NEXT_PUBLIC_MAX_UPLOAD_MB` (default 20)
-- API: `MAX_UPLOAD_MB` (default 20), `ATTACH_MAX_MB` (default 10), `ATTACH_BASE_DIR` (default `/data/uploads`)
+- Web: `NEXT_PUBLIC_API_BASE` (default http://localhost:8000).
+- API: `ATTACH_BASE_DIR` (/data/uploads), `ATTACH_MAX_MB` (10), `ATTACH_THUMB_SIZE` (256), `MAX_UPLOAD_MB` (20).
 
 Data & Storage
-- DB migrations up to `0007_trade_journal_attachments`: adds `trades.reviewed`, `trades.post_analysis_md`; creates `attachments`.
-- Attachments saved under `/data/uploads/{trade_id}/` with metadata (timeframe, state, view, caption, reviewed).
+- Migrations up to `0012_note_templates`. Attachments now include optional `journal_id` and `sort_order`; `trade_id` nullable.
+- Storage layout: `/data/uploads/{trade_id}/...` and `/data/uploads/journal/{journal_id}/...`; thumbs under `thumbs/`.
 
-Timezones
-- CSV tz (commit time) converts timestamps → UTC for storage.
-- Display tz (dashboard/trades) is a view preference and doesn’t mutate data.
-- If CSV is already UTC, commit with `tz=UTC` to avoid double shift.
+UX Conventions (Editors)
+- Apply Template: choose template → toggle sections → inserts Markdown: `## {heading}\n\n{placeholder}`.
+- Create Template from Notes: parses `##`/`###` headings to build sections; falls back to single “Notes” section.
+- Toasts: success/error toasts for save/delete/upload/reorder actions.
 
-UI Notes
-- Next App Router: `useSearchParams()` wrapped in `<Suspense>` (see `/trades/page.tsx`).
-- Typable dropdowns use `<input list=...>` with datalist options for Symbols/Accounts.
-- Trades supports Undo for deletes via restore payload.
-- Dashboard equity curve has a simple hover tooltip; calendar click drills into day.
+Next Tasks (M4, prioritized)
+1) Templates polish
+   - Reordering sections persisted on save for both new and existing templates.
+   - Improve parse-to-template: support deeper headings and code blocks; strip trailing whitespace.
+   - Add minimal validation (non-empty name; at least one section with non-empty heading).
+2) Editor UX polish
+   - Add “Insert at cursor” (currently appends to end).
+   - Keyboard shortcuts: Cmd/Ctrl+S to save notes; Esc to cancel reordering.
+3) Attachments quality of life
+   - Inline rename/caption edits for trade and journal attachments.
+   - Multi-select download (zip) endpoint (server-side streaming zip of selected ids).
+4) Calendar + Journal
+   - Option to hide weekends; indicate journal exists with count of attachments.
+   - Day cell: link to trades and journal with clearer affordances.
 
-Open Items (M4)
-1) Trade Attachments polish
-   - Generate thumbnails for images; strip EXIF metadata on upload.
-   - UI previews (thumbs), drag-sort (optional), batch delete.
-2) Daily Journal page
-   - Route `/journal/YYYY-MM-DD` with Markdown editor, attachments, and linked trades list.
-   - API: DailyEntry model (date, account?, title, notes_md, reviewed?), CRUD + attachments + link/unlink trades.
-   - Calendar integration: indicator if journal exists; button to open journal for day.
-3) Note Templates (for both Trade and Daily editors)
-   - Model: `{ id, user_id, name, target: 'trade'|'daily', sections: [{ heading, default_included, placeholder? }] }`
-   - API: `GET/POST/PATCH/DELETE /templates`
-   - UI: “Apply Template” → choose sections (checkboxes) → inserts Markdown headings/placeholder text.
-
-Stretch (deferred)
-- Dashboard month CSV export honoring filters/timezone.
-- Loading skeletons across Dashboard KPIs/Calendar.
-- Sticky headers in more tables (e.g., uploads) and CSV export for wider datasets.
+Acceptance for this tranche
+- Templates: create/edit/delete, reorder sections (drag), apply to Trade and Daily; create-from-notes handles `##`/`###` reliably; toasts shown on actions.
+- Editors: notes save via button and keyboard; toasts confirm; apply insert works as expected.
+- Attachments: reorder and batch delete for trades; journal delete clears indicator on calendar.
 
 How to Run
-- Tests: `make test`
-- Dev stack: `docker compose up --build`
-- Login via Web → `/upload` → `/uploads` → `/trades` → `/dashboard`
-
-Acceptance (so far)
-- Trade Detail: edit notes + post‑analysis; upload attachments ≤10MB (png/jpg/jpeg/webp/pdf) with metadata; list/download/delete.
-- Dashboard/Trades features per M3 operate with filters and tz as expected.
+- Dev: `docker compose up --build` and visit `/dashboard` → `/templates`.
+- Tests: `make test` (SQLite migrations compatible via batch mode). Ensure Pillow present for thumb tests (optional fallback supported).
 

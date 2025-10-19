@@ -1,4 +1,5 @@
 import AuthStatus from "../components/AuthStatus";
+import Toaster from "../components/Toaster";
 
 export default function RootLayout({ children }:{children:React.ReactNode}){
   return (
@@ -15,6 +16,7 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
           </div>
           <AuthStatus />
         </div>
+        <Toaster />
         {children}
       </body>
     </html>
