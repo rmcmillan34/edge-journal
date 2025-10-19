@@ -31,8 +31,8 @@ def test_metrics_summary_and_equity_curve():
     assert j["wins"] >= 1
     assert j["losses"] >= 1
     assert isinstance(j["net_pnl_sum"], float)
+    assert isinstance(j.get("unreviewed_count"), int)
     ec = j["equity_curve"]
     assert isinstance(ec, list)
     if ec:
         assert set(["date","net_pnl","equity"]).issubset(ec[-1].keys())
-

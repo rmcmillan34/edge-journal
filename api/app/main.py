@@ -10,6 +10,8 @@ from .routes_presets import router as presets_router
 from .routes_accounts import router as accounts_router
 from .routes_trades import router as trades_router
 from .routes_metrics import router as metrics_router
+from .routes_journal import router as journal_router
+from .routes_templates import router as templates_router
 from .deps import get_current_user
 from .models import User
 from .version import get_version
@@ -30,6 +32,8 @@ app.include_router(presets_router)
 app.include_router(accounts_router)
 app.include_router(trades_router)
 app.include_router(metrics_router)
+app.include_router(journal_router)
+app.include_router(templates_router)
 
 @app.get("/health")
 def health():

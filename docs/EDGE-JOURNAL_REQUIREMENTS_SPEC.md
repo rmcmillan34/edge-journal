@@ -308,6 +308,7 @@ saved_views(id, user_id, name, view_json, created_at, updated_at)
 - **M6**: Guardrails + **account lifecycle**
 - **M7**: Reports (PDF) + Notion‑style filters + saved views
 - **M8**: Forex & Futures polish (tick math, sessions)
+- **M9**: Achievements framework, gamified trading.
 - **M9 (Stretch)**: **Insight Coach** + MAE/MFE + Hypothesis Lab
 
 ---

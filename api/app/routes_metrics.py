@@ -27,6 +27,7 @@ def get_metrics(
         Trade.net_pnl,
         Trade.open_time_utc,
         Trade.close_time_utc,
+        Trade.reviewed,
         Account.name.label("account_name"),
         Instrument.symbol.label("symbol"),
     ).join(Account, Account.id == Trade.account_id, isouter=True).join(Instrument, Instrument.id == Trade.instrument_id, isouter=True)
@@ -76,6 +77,7 @@ def get_metrics(
     net_pnl_sum = float(sum((r.net_pnl or 0.0) for r in filtered))
     denom = (wins + losses) or 0
     win_rate = (wins / denom) if denom else None
+    unreviewed = sum(1 for r in filtered if not bool(getattr(r, "reviewed", False)))
 
     # Daily equity (by date key YYYY-MM-DD)
     daily = {}
@@ -97,4 +99,5 @@ def get_metrics(
         "win_rate": win_rate,
         "net_pnl_sum": round(net_pnl_sum, 2),
         "equity_curve": equity_curve,
+        "unreviewed_count": unreviewed,
     }

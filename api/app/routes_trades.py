@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .db import get_db
 from .deps import get_current_user
-from .models import Trade, Account, Instrument
-from .schemas import TradeOut, TradeCreate, TradeUpdate
+from .models import Trade, Account, Instrument, Attachment
+from .schemas import TradeOut, TradeCreate, TradeUpdate, TradeDetailOut, AttachmentOut
 from datetime import datetime, timedelta, timezone
+import os, shutil
+from fastapi.responses import FileResponse
+from io import BytesIO
 
 router = APIRouter(prefix="/trades", tags=["trades"])
+ATTACH_MAX_MB = float(os.environ.get("ATTACH_MAX_MB", "10"))
+ATTACH_BASE_DIR = os.environ.get("ATTACH_BASE_DIR", "/data/uploads")
+ATTACH_THUMB_SIZE = int(os.environ.get("ATTACH_THUMB_SIZE", "256"))
+os.makedirs(ATTACH_BASE_DIR, exist_ok=True)
 
 @router.get("", response_model=List[TradeOut])
 def list_trades(
@@ -270,6 +277,10 @@ def update_trade(trade_id: int, body: TradeUpdate, db: Session = Depends(get_db)
         t.fees = body.fees
     if body.net_pnl is not None:
         t.net_pnl = body.net_pnl
+    if body.reviewed is not None:
+        t.reviewed = bool(body.reviewed)
+    if body.post_analysis_md is not None:
+        t.post_analysis_md = body.post_analysis_md
     db.commit(); db.refresh(t)
     return TradeOut(
         id=t.id,
@@ -325,3 +336,265 @@ def delete_trade(trade_id: int, db: Session = Depends(get_db), current = Depends
     t = db.query(Trade).filter(Trade.id == trade_id).first()
     db.delete(t); db.commit()
     return {"deleted": trade_id, "restore_payload": rp}
+
+
+@router.get("/{trade_id}", response_model=TradeDetailOut)
+def get_trade_detail(trade_id: int, db: Session = Depends(get_db), current = Depends(get_current_user)):
+    # Ownership by account
+    q = db.query(
+        Trade,
+        Account.name.label("account_name"),
+        Instrument.symbol.label("symbol"),
+    ).join(Account, Account.id == Trade.account_id, isouter=True).join(Instrument, Instrument.id == Trade.instrument_id, isouter=True)
+    q = q.filter(Trade.id == trade_id, Account.user_id == current.id)
+    r = q.first()
+    if not r:
+        raise HTTPException(404, detail="Trade not found")
+    t, account_name, symbol = r
+    atts = db.query(Attachment).filter(Attachment.trade_id == t.id).order_by(Attachment.sort_order.asc(), Attachment.created_at.asc()).all()
+    return TradeDetailOut(
+        id=t.id,
+        account_name=account_name,
+        symbol=symbol,
+        side=t.side,
+        qty_units=t.qty_units,
+        entry_price=t.entry_price,
+        exit_price=t.exit_price,
+        open_time_utc=t.open_time_utc.isoformat() if t.open_time_utc else None,
+        close_time_utc=t.close_time_utc.isoformat() if t.close_time_utc else None,
+        net_pnl=t.net_pnl,
+        external_trade_id=t.external_trade_id,
+        notes_md=t.notes_md,
+        post_analysis_md=t.post_analysis_md,
+        reviewed=bool(t.reviewed),
+        attachments=[AttachmentOut(
+            id=a.id,
+            filename=a.filename,
+            mime_type=a.mime_type,
+            size_bytes=a.size_bytes,
+            timeframe=a.timeframe,
+            state=a.state,
+            view=a.view,
+            caption=a.caption,
+            reviewed=bool(a.reviewed),
+            thumb_available=bool(a.thumb_path),
+            thumb_url=(f"/trades/{trade_id}/attachments/{a.id}/thumb" if a.thumb_path else None),
+            sort_order=a.sort_order,
+        ) for a in atts],
+    )
+
+
+@router.get("/{trade_id}/attachments", response_model=List[AttachmentOut])
+def list_attachments(trade_id: int, db: Session = Depends(get_db), current = Depends(get_current_user)):
+    # ensure ownership
+    t = db.query(Trade).join(Account, Account.id == Trade.account_id, isouter=True).filter(Trade.id == trade_id, Account.user_id == current.id).first()
+    if not t:
+        raise HTTPException(404, detail="Trade not found")
+    rows = db.query(Attachment).filter(Attachment.trade_id == trade_id).order_by(Attachment.sort_order.asc(), Attachment.created_at.asc()).all()
+    out: list[AttachmentOut] = []
+    for a in rows:
+        out.append(AttachmentOut(
+            id=a.id,
+            filename=a.filename,
+            mime_type=a.mime_type,
+            size_bytes=a.size_bytes,
+            timeframe=a.timeframe,
+            state=a.state,
+            view=a.view,
+            caption=a.caption,
+            reviewed=bool(a.reviewed),
+            thumb_available=bool(a.thumb_path),
+            thumb_url=(f"/trades/{trade_id}/attachments/{a.id}/thumb" if a.thumb_path else None),
+            sort_order=a.sort_order,
+        ))
+    return out
+
+
+@router.post("/{trade_id}/attachments", response_model=AttachmentOut)
+async def upload_attachment(
+    trade_id: int,
+    file: UploadFile = File(...),
+    timeframe: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    view: Optional[str] = Form(None),
+    caption: Optional[str] = Form(None),
+    reviewed: Optional[bool] = Form(False),
+    db: Session = Depends(get_db),
+    current = Depends(get_current_user),
+):
+    # ensure ownership
+    t = db.query(Trade).join(Account, Account.id == Trade.account_id, isouter=True).filter(Trade.id == trade_id, Account.user_id == current.id).first()
+    if not t:
+        raise HTTPException(404, detail="Trade not found")
+    content = await file.read()
+    if len(content) > int(ATTACH_MAX_MB * 1024 * 1024):
+        raise HTTPException(413, detail=f"File exceeds limit of {int(ATTACH_MAX_MB)} MB")
+    # basic type/extension check
+    name = file.filename or "file"
+    ext = os.path.splitext(name)[1].lower()
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".pdf"}
+    if ext not in allowed:
+        raise HTTPException(400, detail="Unsupported file type")
+    # save to disk (and process if image)
+    trade_dir = os.path.join(ATTACH_BASE_DIR, str(trade_id))
+    os.makedirs(trade_dir, exist_ok=True)
+    basename = f"{int(datetime.now().timestamp())}_{name}"
+    path = os.path.join(trade_dir, basename)
+
+    thumb_path = None
+    try:
+        if ext in {".png", ".jpg", ".jpeg", ".webp"}:
+            try:
+                from PIL import Image
+            except Exception:
+                # Pillow not available; fall back to raw save
+                with open(path, "wb") as f:
+                    f.write(content)
+            else:
+                im = Image.open(BytesIO(content))
+                # Normalize mode and strip EXIF by re-saving without metadata
+                if im.mode not in ("RGB", "RGBA"):
+                    im = im.convert("RGB")
+                save_params = {}
+                if ext in {".jpg", ".jpeg"}:
+                    save_params.update({"quality": 92, "optimize": True})
+                im.save(path, **save_params)
+                # Create thumbnail
+                try:
+                    im_thumb = im.copy()
+                    im_thumb.thumbnail((ATTACH_THUMB_SIZE, ATTACH_THUMB_SIZE))
+                    thumbs_dir = os.path.join(trade_dir, "thumbs")
+                    os.makedirs(thumbs_dir, exist_ok=True)
+                    # Prefer PNG if alpha channel present, else JPEG
+                    has_alpha = ("A" in im_thumb.getbands())
+                    if has_alpha:
+                        thumb_name = os.path.splitext(basename)[0] + ".png"
+                        thumb_path = os.path.join(thumbs_dir, thumb_name)
+                        im_thumb.save(thumb_path, format="PNG")
+                    else:
+                        thumb_name = os.path.splitext(basename)[0] + ".jpg"
+                        thumb_path = os.path.join(thumbs_dir, thumb_name)
+                        im_thumb = im_thumb.convert("RGB")
+                        im_thumb.save(thumb_path, format="JPEG", quality=85, optimize=True)
+                except Exception:
+                    thumb_path = None
+        else:
+            # PDFs or other allowed types: save raw
+            with open(path, "wb") as f:
+                f.write(content)
+    except Exception:
+        # If any processing fails, ensure the original bytes are saved
+        try:
+            with open(path, "wb") as f:
+                f.write(content)
+        except Exception:
+            pass
+    # choose next sort order for this trade
+    current_max = db.query(Attachment).filter(Attachment.trade_id == trade_id).order_by(Attachment.sort_order.desc()).limit(1).first()
+    next_order = (current_max.sort_order if current_max else 0) + 1
+
+    a = Attachment(
+        trade_id=trade_id,
+        user_id=None,
+        filename=name,
+        mime_type=file.content_type,
+        size_bytes=len(content),
+        storage_path=path,
+        thumb_path=thumb_path,
+        sort_order=next_order,
+        timeframe=timeframe,
+        state=state,
+        view=view,
+        caption=caption,
+        reviewed=bool(reviewed),
+    )
+    db.add(a); db.commit(); db.refresh(a)
+    return AttachmentOut(
+        id=a.id,
+        filename=a.filename,
+        mime_type=a.mime_type,
+        size_bytes=a.size_bytes,
+        timeframe=a.timeframe,
+        state=a.state,
+        view=a.view,
+        caption=a.caption,
+        reviewed=bool(a.reviewed),
+        thumb_available=bool(a.thumb_path),
+        thumb_url=(f"/trades/{trade_id}/attachments/{a.id}/thumb" if a.thumb_path else None),
+        sort_order=a.sort_order,
+    )
+
+
+@router.get("/{trade_id}/attachments/{att_id}/download")
+def download_attachment(trade_id: int, att_id: int, db: Session = Depends(get_db), current = Depends(get_current_user)):
+    a = db.query(Attachment).join(Trade, Trade.id == Attachment.trade_id).join(Account, Account.id == Trade.account_id, isouter=True).filter(Attachment.id == att_id, Trade.id == trade_id, Account.user_id == current.id).first()
+    if not a:
+        raise HTTPException(404, detail="Attachment not found")
+    return FileResponse(a.storage_path, filename=a.filename, media_type=a.mime_type)
+
+
+@router.get("/{trade_id}/attachments/{att_id}/thumb")
+def download_attachment_thumb(trade_id: int, att_id: int, db: Session = Depends(get_db), current = Depends(get_current_user)):
+    a = db.query(Attachment).join(Trade, Trade.id == Attachment.trade_id).join(Account, Account.id == Trade.account_id, isouter=True).\
+        filter(Attachment.id == att_id, Trade.id == trade_id, Account.user_id == current.id).first()
+    if not a:
+        raise HTTPException(404, detail="Attachment not found")
+    if not a.thumb_path or not os.path.exists(a.thumb_path):
+        raise HTTPException(404, detail="Thumbnail not available")
+    ext = os.path.splitext(a.thumb_path)[1].lower()
+    media = "image/jpeg" if ext in (".jpg", ".jpeg") else ("image/png" if ext == ".png" else "application/octet-stream")
+    return FileResponse(a.thumb_path, filename=os.path.basename(a.thumb_path), media_type=media)
+
+
+@router.delete("/{trade_id}/attachments/{att_id}")
+def delete_attachment(trade_id: int, att_id: int, db: Session = Depends(get_db), current = Depends(get_current_user)):
+    a = db.query(Attachment).join(Trade, Trade.id == Attachment.trade_id).join(Account, Account.id == Trade.account_id, isouter=True).filter(Attachment.id == att_id, Trade.id == trade_id, Account.user_id == current.id).first()
+    if not a:
+        raise HTTPException(404, detail="Attachment not found")
+    try:
+        if a.storage_path and os.path.exists(a.storage_path):
+            os.remove(a.storage_path)
+    except Exception:
+        pass
+    db.delete(a); db.commit()
+    return {"deleted": att_id}
+
+
+@router.post("/{trade_id}/attachments/reorder")
+def reorder_attachments(trade_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
+    # validate ownership and that all ids belong to this trade
+    t = db.query(Trade).join(Account, Account.id == Trade.account_id, isouter=True).filter(Trade.id == trade_id, Account.user_id == current.id).first()
+    if not t:
+        raise HTTPException(404, detail="Trade not found")
+    if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+        raise HTTPException(400, detail="Body must be a list of attachment IDs")
+    rows = db.query(Attachment).filter(Attachment.trade_id == trade_id, Attachment.id.in_(ids)).all()
+    if len(rows) != len(set(ids)):
+        raise HTTPException(400, detail="One or more attachments invalid")
+    # set sort_order by index
+    for idx, att_id in enumerate(ids):
+        db.query(Attachment).filter(Attachment.id == att_id).update({Attachment.sort_order: idx})
+    db.commit()
+    return {"reordered": len(ids)}
+
+
+@router.post("/{trade_id}/attachments/batch-delete")
+def batch_delete_attachments(trade_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
+    t = db.query(Trade).join(Account, Account.id == Trade.account_id, isouter=True).filter(Trade.id == trade_id, Account.user_id == current.id).first()
+    if not t:
+        raise HTTPException(404, detail="Trade not found")
+    if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+        raise HTTPException(400, detail="Body must be a list of attachment IDs")
+    rows = db.query(Attachment).filter(Attachment.trade_id == trade_id, Attachment.id.in_(ids)).all()
+    count = 0
+    for a in rows:
+        try:
+            if a.storage_path and os.path.exists(a.storage_path):
+                os.remove(a.storage_path)
+            if a.thumb_path and os.path.exists(a.thumb_path):
+                os.remove(a.thumb_path)
+        except Exception:
+            pass
+        db.delete(a); count += 1
+    db.commit()
+    return {"deleted": count}

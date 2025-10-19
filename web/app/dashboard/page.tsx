@@ -8,6 +8,7 @@ type Metrics = {
   win_rate: number | null;
   net_pnl_sum: number;
   equity_curve: { date: string; net_pnl: number; equity: number }[];
+  unreviewed_count?: number;
 };
 
 function fmtYmd(d: Date){
@@ -33,6 +34,10 @@ export default function Dashboard(){
   const [displayTz, setDisplayTz] = useState<string>("");
   const [symbols, setSymbols] = useState<string[]>([]);
   const [accountsList, setAccountsList] = useState<{id:number; name:string}[]>([]);
+  const [journalDates, setJournalDates] = useState<string[]>([]);
+  const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>(()=>{
+    try{ return (localStorage.getItem('dash_week_start') as any) || 'Mon'; }catch{ return 'Mon'; }
+  });
 
   useEffect(() => { try {
     setToken(localStorage.getItem("ej_token") || "");
@@ -86,15 +91,18 @@ export default function Dashboard(){
       if (symbol) all.set('symbol', symbol);
       if (account) all.set('account', account);
       if (displayTz) all.set('tz', displayTz);
-      const [rm, ra] = await Promise.all([
+      const [rm, ra, rj] = await Promise.all([
         fetch(`${API_BASE}/metrics?${qp.toString()}`, { headers }),
         fetch(`${API_BASE}/metrics?${all.toString()}`, { headers }),
+        fetch(`${API_BASE}/journal/dates?start=${fmtYmd(start)}&end=${fmtYmd(end)}`, { headers }),
       ]);
-      const [jm, ja] = await Promise.all([rm.json(), ra.json()]);
+      const [jm, ja, jd] = await Promise.all([rm.json(), ra.json(), rj.json()]);
       if (!rm.ok) throw new Error(jm.detail || `Failed: ${rm.status}`);
       if (!ra.ok) throw new Error(ja.detail || `Failed: ${ra.status}`);
+      if (!rj.ok) throw new Error(jd.detail || `Failed: ${rj.status}`);
       setData(jm);
       setAllData(ja);
+      setJournalDates(Array.isArray(jd) ? jd : []);
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setLoading(false); }
   }
@@ -115,8 +123,6 @@ export default function Dashboard(){
       <ChartSVG W={W} H={H} P={P} d={d} points={points} />
     );
   }, [data, allData]);
-
-  return (
 
   return (
     <main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
@@ -150,6 +156,13 @@ export default function Dashboard(){
             {["Australia/Sydney","America/New_York","Europe/London","Asia/Singapore"].map(z => (<option key={z} value={z}>{z}</option>))}
           </select>
         </div>
+        <div style={{display:'flex', alignItems:'center', gap:6}}>
+          <label>Week starts:</label>
+          <select value={weekStart} onChange={e=>{ const v = (e.target.value==='Sun'?'Sun':'Mon') as 'Mon'|'Sun'; setWeekStart(v); try{ localStorage.setItem('dash_week_start', v);}catch{} }}>
+            <option value="Mon">Mon</option>
+            <option value="Sun">Sun</option>
+          </select>
+        </div>
         <button type="button" onClick={()=>{
           setSymbol(""); setAccount(""); setDisplayTz("");
           try{
@@ -160,7 +173,7 @@ export default function Dashboard(){
         }}>Clear Filters</button>
         {loading && <span style={{color:'#64748b'}}>Loading…</span>}
       </div>
-      <div style={{display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:12, margin:'12px 0'}}>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(5, minmax(0, 1fr))', gap:12, margin:'12px 0'}}>
         <div style={{border:'1px solid #e5e7eb', borderRadius:8, padding:12}}>
           <div style={{fontSize:12, color:'#64748b'}}>Trades</div>
           <div style={{fontSize:24}}>{data?.trades_total ?? '-'}</div>
@@ -177,6 +190,10 @@ export default function Dashboard(){
           <div style={{fontSize:12, color:'#64748b'}}>Wins / Losses</div>
           <div style={{fontSize:24}}>{(data?.wins ?? '-')}/{(data?.losses ?? '-')}</div>
         </div>
+        <div style={{border:'1px solid #e5e7eb', borderRadius:8, padding:12}}>
+          <div style={{fontSize:12, color:'#64748b'}}>Unreviewed</div>
+          <div style={{fontSize:24}}>{data?.unreviewed_count ?? '-'}</div>
+        </div>
       </div>
       <h2 style={{marginTop:16}}>Equity Curve (All time)</h2>
       {data?.equity_curve?.length ? (
@@ -186,7 +203,7 @@ export default function Dashboard(){
       )}
 
       <h2 style={{marginTop:16}}>Calendar (Current Month)</h2>
-      <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(data?.equity_curve||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} loading={loading} />
+      <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(data?.equity_curve||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} loading={loading} journalDates={journalDates} />
     </main>
   );
 }
@@ -198,7 +215,7 @@ function ChartSVG({ W, H, P, d, points }:{ W:number; H:number; P:number; d:strin
   const ymin = Math.min(...ys, 0), ymax = Math.max(...ys, 0.0001);
   const xscale = (x:number) => P + (x - xmin) / (xmax - xmin) * (W - 2*P);
   const yscale = (y:number) => H - P - (y - ymin) / (ymax - ymin) * (H - 2*P);
-  function onMove(e: React.MouseEvent<SVGSVGElement>){
+  function onMove(e: any){
     const rect = (e.target as SVGElement).closest('svg')!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const rel = Math.max(0, Math.min(1, (x - P) / Math.max(1,(W - 2*P))));
@@ -227,12 +244,16 @@ function ChartSVG({ W, H, P, d, points }:{ W:number; H:number; P:number; d:strin
   );
 }
 
-function Calendar({ monthAnchor, setMonthAnchor, daily, loading }:{ monthAnchor: Date; setMonthAnchor:(d:Date)=>void; daily: {date:string; pnl:number}[]; loading:boolean }){
+function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates }:{ monthAnchor: Date; setMonthAnchor:(d:Date)=>void; daily: {date:string; pnl:number}[]; loading:boolean; journalDates?: string[] }){
   const monthName = monthAnchor.toLocaleString(undefined, { month:'long', year:'numeric' });
   const first = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
   const last = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0);
   const daysInMonth = last.getDate();
-  const startWeekday = first.getDay();
+  // Weekday index, configurable: default Monday
+  const savedStart = (typeof window !== 'undefined' ? (localStorage.getItem('dash_week_start') || 'Mon') : 'Mon');
+  const weekStartIdx = savedStart === 'Sun' ? 0 : 1;
+  // Transform Sunday=0..Saturday=6 into 0..6 starting from configured week start
+  const startWeekday = (first.getDay() - weekStartIdx + 7) % 7;
   const totalCells = Math.ceil((startWeekday + daysInMonth) / 7) * 7;
   const dayMap = new Map(daily.map(d=>[d.date, d.pnl]));
 
@@ -243,19 +264,24 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading }:{ monthAnchor:
       cells.push(<div key={i} style={{border:'1px solid #eee', minHeight:80, background:'#fafafa'}} />);
     } else {
       const d = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), dayNum);
-      const pn = dayMap.get(fmtYmd(d));
+      const ymd = fmtYmd(d);
+      const pn = dayMap.get(ymd);
+      const hasJournal = (journalDates || []).includes(ymd);
       let bg = '#f8fafc', color = '#334155', badgeBg = '#e2e8f0';
       if (pn != null){
         if (pn > 0){ bg = '#dcfce7'; color = '#166534'; badgeBg = '#bbf7d0'; }
         else if (pn < 0){ bg = '#fee2e2'; color = '#991b1b'; badgeBg = '#fecaca'; }
       }
       cells.push(
-        <div key={i} style={{border:'1px solid #e5e7eb', minHeight:80, padding:8, background:bg, color, cursor:'pointer'}} onClick={()=>{
-          const ymd = fmtYmd(d);
+        <div key={i} style={{border:'1px solid #e5e7eb', minHeight:92, padding:8, background:bg, color, cursor:'pointer'}} onClick={()=>{
           window.location.href = `/trades?start=${ymd}&end=${ymd}`;
         }}>
-          <div style={{display:'flex', justifyContent:'space-between'}}>
-            <div style={{fontSize:12, opacity:0.7}}>{d.toLocaleDateString(undefined,{ day:'2-digit'})}</div>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            <div style={{fontSize:12, opacity:0.7, display:'flex', alignItems:'center', gap:6}}>
+              <span>{d.toLocaleDateString(undefined,{ day:'2-digit'})}</span>
+              <a href={`/journal/${ymd}`} title="Open Journal" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}>📝</a>
+              {hasJournal && <span title="Journal exists" style={{display:'inline-block', width:8, height:8, borderRadius:9999, background:'#0ea5e9'}} />}
+            </div>
             {pn != null && (
               <span style={{fontSize:12, background:badgeBg, padding:'2px 6px', borderRadius:999}}>{pn>0?'+':''}{pn.toFixed(2)}</span>
             )}
@@ -276,7 +302,7 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading }:{ monthAnchor:
         </div>
       </div>
       <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:0, border:'1px solid #e5e7eb'}}>
-        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((w,i)=>(
+        {((weekStartIdx===1)?["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]).map((w,i)=>(
           <div key={i} style={{borderRight:'1px solid #e5e7eb', padding:6, background:'#f8fafc', fontSize:12, textAlign:'center'}}>{w}</div>
         ))}
         {cells}

@@ -300,7 +300,7 @@ function TradesView(){
     <tr key={t.id}>
       <td><input type="checkbox" checked={selected.includes(t.id)} onChange={e=>toggleSelect(t.id, e.target.checked)} /></td>
       <td>{t.account_name || '-'}</td>
-      <td>{t.symbol || '-'}</td>
+      <td><a href={`/trades/${t.id}`}>{t.symbol || '-'}</a></td>
       <td>{t.side}</td>
       <td>{t.qty_units ?? '-'}</td>
       <td>{t.entry_price ?? '-'}</td>
