@@ -1,5 +1,9 @@
 # Edge-Journal
 
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](./VERSION)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](./LICENSE)
+[![ci](https://github.com/rmcmillan34/edge-journal/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/rmcmillan34/edge-journal/actions/workflows/ci.yml)
+
 Local-first, OSS trading journal — **CSV-first** imports, dashboards, and journaling. Runs locally with Docker.
 
 ## What’s in here
@@ -95,8 +99,8 @@ Attachments (API):
 - `ATTACH_THUMB_SIZE` (default 256)
 
 ## Versioning
-- Pre‑1.0 SemVer from `VERSION`. M3 bump → v0.3.0.
- - Current tranche: M4 — v0.4.2.
+- Pre‑1.0 SemVer from `VERSION`. Current version: **v0.5.0**.
+- Previous milestone: M4 — v0.4.2.
 
 ## Stretch ideas
 - Dashboard month CSV export (date, net PnL, equity) honoring filters/timezone.
