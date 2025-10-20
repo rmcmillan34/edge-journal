@@ -6,15 +6,26 @@ from .deps import get_current_user
 from .models import Trade, Account, Instrument, Attachment
 from .schemas import TradeOut, TradeCreate, TradeUpdate, TradeDetailOut, AttachmentOut, AttachmentUpdate
 from datetime import datetime, timedelta, timezone
-import os, shutil
+import os, shutil, tempfile
 from fastapi.responses import FileResponse
 from io import BytesIO
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 ATTACH_MAX_MB = float(os.environ.get("ATTACH_MAX_MB", "10"))
-ATTACH_BASE_DIR = os.environ.get("ATTACH_BASE_DIR", "/data/uploads")
 ATTACH_THUMB_SIZE = int(os.environ.get("ATTACH_THUMB_SIZE", "256"))
-os.makedirs(ATTACH_BASE_DIR, exist_ok=True)
+
+def _resolve_attach_base() -> str:
+    base = os.environ.get("ATTACH_BASE_DIR", "/data/uploads")
+    try:
+        os.makedirs(base, exist_ok=True)
+        return base
+    except Exception:
+        # Fall back to tmp when /data is not writable (e.g. CI)
+        fallback = os.path.join(tempfile.gettempdir(), "edge_uploads")
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+ATTACH_BASE_DIR = _resolve_attach_base()
 
 @router.get("", response_model=List[TradeOut])
 def list_trades(

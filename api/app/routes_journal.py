@@ -9,7 +9,7 @@ from .models import DailyJournal, DailyJournalTradeLink, Trade, Account
 from .schemas import DailyJournalUpsert, DailyJournalOut, AttachmentOut, AttachmentUpdate
 from fastapi import UploadFile, File, Form
 from fastapi.responses import FileResponse
-import os
+import os, tempfile
 from datetime import datetime as dt
 from io import BytesIO
 from .models import Attachment
@@ -20,9 +20,19 @@ import zipfile
 router = APIRouter(prefix="/journal", tags=["journal"])
 
 ATTACH_MAX_MB = float(os.environ.get("ATTACH_MAX_MB", "10"))
-ATTACH_BASE_DIR = os.environ.get("ATTACH_BASE_DIR", "/data/uploads")
 ATTACH_THUMB_SIZE = int(os.environ.get("ATTACH_THUMB_SIZE", "256"))
-os.makedirs(ATTACH_BASE_DIR, exist_ok=True)
+
+def _resolve_attach_base() -> str:
+    base = os.environ.get("ATTACH_BASE_DIR", "/data/uploads")
+    try:
+        os.makedirs(base, exist_ok=True)
+        return base
+    except Exception:
+        fallback = os.path.join(tempfile.gettempdir(), "edge_uploads")
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+ATTACH_BASE_DIR = _resolve_attach_base()
 
 
 def _parse_date(d: str) -> date:
