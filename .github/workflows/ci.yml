@@ -33,7 +33,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install fastapi uvicorn[standard] pytest httpx ruff black \
-            sqlalchemy alembic psycopg2-binary pydantic \
+            sqlalchemy alembic psycopg2-binary pydantic tzdata \
             passlib[argon2] python-jose[cryptography] \
             email-validator python-multipart
 

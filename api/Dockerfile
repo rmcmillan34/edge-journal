@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir --upgrade pip
 # NOTE: for a lean runtime image, you'd drop pytest/ruff/black later.
 RUN pip install --no-cache-dir \
     fastapi uvicorn[standard] sqlalchemy alembic psycopg2-binary pydantic \
-    passlib[argon2] python-jose[cryptography] email-validator python-multipart \
+    passlib[argon2] python-jose[cryptography] email-validator python-multipart tzdata \
     pytest httpx ruff black
 
 # Bake version from CI

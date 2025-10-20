@@ -12,13 +12,17 @@ def make_csv(rows):
     return buf.read()
 
 def test_commit_handles_bad_datetime():
+    email = "baddt_user@example.com"; pwd = "S3cretPwd!"
+    client.post("/auth/register", json={"email": email, "password": pwd})
+    tok = client.post("/auth/login", data={"username": email, "password": pwd}, headers={"Content-Type": "application/x-www-form-urlencoded"}).json()["access_token"]
+    auth = {"Authorization": f"Bearer {tok}"}
     rows = [
         ["Account","Symbol","Side","Open Time","Close Time","Volume","Entry Price","Exit Price","Commission","Profit","Ticket","Comment"],
         ["Demo-1","EURUSD","Buy","NOT A DATE","2025-05-01 09:00:00","1.00","1.10000","1.10100","-2.00","80.00","T1","note"],
     ]
     data = make_csv(rows)
     files = {"file": ("bad.csv", data, "text/csv")}
-    r = client.post("/uploads/commit", files=files)
+    r = client.post("/uploads/commit", files=files, headers=auth)
     assert r.status_code == 200
     j = r.json()
     assert j["errors"] and "datetime" in j["errors"][0]["reason"].lower()

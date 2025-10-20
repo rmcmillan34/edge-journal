@@ -8,6 +8,10 @@ def make_csv(rows):
     buf = io.StringIO(); w = csv.writer(buf); w.writerows(rows); buf.seek(0); return buf.read()
 
 def test_commit_inserts_and_dedups():
+    email = "basic_user@example.com"; pwd = "S3cretPwd!"
+    client.post("/auth/register", json={"email": email, "password": pwd})
+    tok = client.post("/auth/login", data={"username": email, "password": pwd}, headers={"Content-Type": "application/x-www-form-urlencoded"}).json()["access_token"]
+    auth = {"Authorization": f"Bearer {tok}"}
     rows = [
         ["Account","Symbol","Side","Open Time","Close Time","Volume","Entry Price","Exit Price","Commission","Profit","Ticket","Comment"],
         ["Demo-1","EURUSD","Buy","2025-05-01 08:00:00","2025-05-01 09:00:00","1.00","1.10000","1.10100","-2.00","80.00","T1","note"],
@@ -15,7 +19,7 @@ def test_commit_inserts_and_dedups():
     ]
     data = make_csv(rows)
     files = {"file": ("trades.csv", data, "text/csv")}
-    r1 = client.post("/uploads/commit", files=files)
+    r1 = client.post("/uploads/commit", files=files, headers=auth)
     assert r1.status_code == 200
     j1 = r1.json()
 
@@ -24,7 +28,7 @@ def test_commit_inserts_and_dedups():
     assert j1["skipped"] == 0
     assert not j1["errors"]
 
-    r2 = client.post("/uploads/commit", files=files)
+    r2 = client.post("/uploads/commit", files=files, headers=auth)
     assert r2.status_code == 200
     j2 = r2.json()
 

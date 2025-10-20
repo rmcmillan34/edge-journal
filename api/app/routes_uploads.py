@@ -1,18 +1,39 @@
 # api/app/routes_uploads.py
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from typing import Dict, List, Any
 import csv
 import io
+import json
+import os
 from sqlalchemy.orm import Session
 from .db import get_db
-from .models import Upload, Trade, Account, Instrument
+from .deps import get_optional_user, get_current_user
+from .models import Upload, Trade, Account, Instrument, MappingPreset, User
 from datetime import datetime, timezone
+from sqlalchemy import and_
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 # Minimal preset dictionary (we’ll expand later)
 #TODO: Extract to a JSON or YAML file for configurability
 PRESETS = {
+    "ftmo": {
+        "match": {"Open", "Close", "Symbol", "Profit"},
+        "map": {
+            "Account": ["Account", "Login"],
+            "Symbol": ["Symbol", "Instrument"],
+            "Side": ["Type", "Side", "Direction"],
+            "Open Time": ["Open", "Open Time", "Time", "Entry Time", "OpenTime"],
+            "Close Time": ["Close", "Close Time", "Exit Time", "CloseTime"],
+            "Quantity": ["Volume", "Lots", "Qty"],
+            "Entry Price": ["Open Price", "Price", "Price[1]", "Entry", "Price Open"],
+            "Exit Price": ["Close Price", "Price[2]", "Exit", "Price Close"],
+            "Fees": ["Commission", "Commissions", "Swap"],
+            "Net PnL": ["Profit", "Net PnL", "NetProfit", "Net P/L"],
+            "ExternalTradeID": ["Order", "Ticket", "Position ID"],
+            "Notes": ["Comment", "Notes", "Note"],
+        },
+    },
     "ctrader": {
         "match": {"Open Time", "Close Time", "Symbol"},
         "map": {
@@ -82,6 +103,8 @@ CORE_FIELDS = [
     "Notes",
 ]
 
+CANON_REQUIRED = ["Account","Symbol","Side","Open Time","Quantity","Entry Price"]
+
 def _detect_preset(headers: List[str]) -> str:
     hset = set(headers)
     best = None
@@ -112,20 +135,89 @@ def _build_mapping(preset_name: str, headers: List[str]) -> Dict[str, str]:
 
     return mapping
 
+def _unique_headers(headers: List[str]) -> List[str]:
+    seen: dict[str, int] = {}
+    out: List[str] = []
+    for h in headers:
+        cnt = seen.get(h, 0) + 1
+        seen[h] = cnt
+        if cnt == 1:
+            out.append(h)
+        else:
+            out.append(f"{h}[{cnt}]")
+    return out
+
+@router.get("")
+def list_uploads(db: Session = Depends(get_db), current: User = Depends(get_current_user), limit: int = 50, offset: int = 0):
+    q = db.query(Upload).filter(Upload.user_id == current.id).order_by(Upload.created_at.desc()).offset(offset).limit(min(limit, 200))
+    rows = q.all()
+    out = []
+    for u in rows:
+        out.append({
+            "id": u.id,
+            "filename": u.filename,
+            "preset": u.preset,
+            "status": u.status,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "inserted_count": u.inserted_count or 0,
+            "updated_count": u.updated_count or 0,
+            "skipped_count": u.skipped_count or 0,
+            "error_count": u.error_count or 0,
+            "tz": getattr(u, "tz", None),
+        })
+    return out
+
+
+@router.get("/{upload_id}")
+def get_upload(upload_id: int, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    u = db.query(Upload).filter(Upload.id == upload_id, Upload.user_id == current.id).first()
+    if not u:
+        raise HTTPException(404, detail="Upload not found")
+    try:
+        errs = json.loads(u.errors_json) if u.errors_json else []
+    except Exception:
+        errs = []
+    return {
+        "id": u.id,
+        "filename": u.filename,
+        "preset": u.preset,
+        "tz": getattr(u, "tz", None),
+        "status": u.status,
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+        "inserted_count": u.inserted_count or 0,
+        "updated_count": u.updated_count or 0,
+        "skipped_count": u.skipped_count or 0,
+        "error_count": u.error_count or 0,
+        "errors": errs,
+    }
+
+MAX_UPLOAD_MB = float(os.environ.get("MAX_UPLOAD_MB", "20"))
+
 @router.post("")
 async def upload_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Please upload a .csv file")
 
     content = await file.read()
+    if len(content) > int(MAX_UPLOAD_MB * 1024 * 1024):
+        raise HTTPException(status_code=413, detail=f"File exceeds limit of {int(MAX_UPLOAD_MB)} MB")
     try:
         text = content.decode("utf-8", errors="replace")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid text encoding")
 
     f = io.StringIO(text)
-    reader = csv.DictReader(f)
-    headers = reader.fieldnames or []
+    row_reader = csv.reader(f)
+    try:
+        raw_headers = next(row_reader)
+    except StopIteration:
+        raise HTTPException(status_code=400, detail="CSV appears empty")
+    headers = _unique_headers([h.strip() for h in raw_headers])
+    # Build rows as dicts with unique headers (handles duplicate names)
+    rows_list: list[dict[str, str]] = []
+    for r in row_reader:
+        d = {headers[i]: (r[i] if i < len(r) else "") for i in range(len(headers))}
+        rows_list.append(d)
     if not headers:
         raise HTTPException(status_code=400, detail="CSV appears to have no header row")
 
@@ -135,7 +227,7 @@ async def upload_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
 
     preview_rows = []
     rows = 0
-    for i, row in enumerate(reader):
+    for i, row in enumerate(rows_list):
         if i < 5:
             preview_rows.append({k: row.get(mapping.get(k, ""), "") for k in CORE_FIELDS if k in mapping})
         rows += 1
@@ -157,10 +249,18 @@ async def upload_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
     }
 
 
-def _parse_dt(dt_str: str) -> datetime:
+def _parse_dt(dt_str: str, tz_name: str | None = None) -> datetime:
     try:
         dt = datetime.strptime(dt_str.strip(), "%Y-%m-%d %H:%M:%S")
-        return dt.replace(tzinfo=timezone.utc)  # MVP: treat input as UTC
+        if tz_name and tz_name.upper() != "UTC":
+            try:
+                from zoneinfo import ZoneInfo
+                z = ZoneInfo(tz_name)
+            except Exception as e:
+                raise ValueError(f"Unknown timezone: {tz_name}") from e
+            local = dt.replace(tzinfo=z)
+            return local.astimezone(timezone.utc)
+        return dt.replace(tzinfo=timezone.utc)
     except Exception as e:
         raise ValueError(f"Invalid datetime: {dt_str}") from e
 
@@ -175,74 +275,137 @@ def _get_or_create_instrument(db: Session, symbol: str) -> Instrument:
     db.add(inst); db.flush()
     return inst
 
-def _get_or_create_account(db: Session, name: str) -> Account:
-    acct = db.query(Account).filter(Account.name == name).first()
+def _get_or_create_account(db: Session, name: str, user_id: int | None = None) -> Account:
+    q = db.query(Account).filter(Account.name == name)
+    if user_id:
+        q = q.filter(Account.user_id == user_id)
+    acct = q.first()
     if acct:
         return acct
-    acct = Account(name=name, status="active")
+    acct = Account(user_id=user_id, name=name, status="active")
     db.add(acct); db.flush()
     return acct
+
+def _parse_number(val: str) -> float | None:
+    if val is None:
+        return None
+    s = val.strip()
+    if s == "":
+        return None
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        neg = True
+        s = s[1:-1]
+    s = s.replace(",", "")
+    try:
+        f = float(s)
+        return -f if neg else f
+    except Exception as e:
+        raise ValueError(f"Invalid number: {val}") from e
+
+def _norm_qty_str(x: float | None) -> str:
+    if x is None:
+        return ""
+    return f"{round(x, 2):.2f}"
+
+def _norm_price_str(x: float | None) -> str:
+    if x is None:
+        return ""
+    return f"{round(x, 5):.5f}"
 
 @router.post("/commit")
 async def commit_csv(
     file: UploadFile = File(...),
+    mapping: str | None = Form(None),
+    preset_name: str | None = Form(None),
+    save_as: str | None = Form(None),
+    account_name: str | None = Form(None),
+    account_id: int | None = Form(None),
+    tz: str | None = Form(None),
     db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Please upload a .csv file")
 
     content = await file.read()
+    if len(content) > int(MAX_UPLOAD_MB * 1024 * 1024):
+        raise HTTPException(status_code=413, detail=f"File exceeds limit of {int(MAX_UPLOAD_MB)} MB")
     text = content.decode("utf-8", errors="replace")
 
     f = io.StringIO(text)
-    reader = csv.DictReader(f)
-    headers = reader.fieldnames or []
+    row_reader = csv.reader(f)
+    try:
+        raw_headers = next(row_reader)
+    except StopIteration:
+        raise HTTPException(status_code=400, detail="CSV appears empty")
+    headers = _unique_headers([h.strip() for h in raw_headers])
     if not headers:
         raise HTTPException(status_code=400, detail="CSV appears to have no header row")
 
     preset = _detect_preset(headers)
-    mapping = _build_mapping(preset, headers)
+    auto_map = _build_mapping(preset, headers)
+    # Resolve mapping from auto + optional preset + optional override
+    allow_missing_account = bool(account_name or account_id)
+    final_map = resolve_mapping(db, getattr(current, "id", None), headers, preset_name, mapping, auto_map, allow_missing_account=allow_missing_account)
 
     required_for_key = ["Account", "Symbol", "Side", "Open Time", "Quantity", "Entry Price"]
-    missing_for_key = [c for c in required_for_key if c not in mapping]
+    missing_for_key = [c for c in required_for_key if c not in final_map and not (c == "Account" and allow_missing_account)]
     if missing_for_key:
         raise HTTPException(status_code=400, detail=f"Missing required fields for dedupe key: {missing_for_key}")
 
-    upload = Upload(filename=file.filename, preset=preset, status="committed")
+    upload = Upload(user_id=current.id, filename=file.filename, preset=preset, status="committed")
+    upload.tz = tz
     db.add(upload); db.flush()
 
     inserted = updated = skipped = 0
     errors: List[Dict[str, Any]] = []
 
-    for lineno, row in enumerate(reader, start=2):  # 1 is header
+    for lineno, raw in enumerate(row_reader, start=2):  # 1 is header
+        row = {headers[i]: (raw[i] if i < len(raw) else "") for i in range(len(headers))}
         try:
-            account = (row.get(mapping["Account"], "") or "").strip()
-            symbol = (row.get(mapping["Symbol"], "") or "").strip()
-            side = (row.get(mapping["Side"], "") or "").strip().capitalize()
-            open_time_str = (row.get(mapping["Open Time"], "") or "").strip()
-            close_time_str = (row.get(mapping.get("Close Time",""), "") or "").strip()
+            if "Account" in final_map:
+                account = (row.get(final_map["Account"], "") or "").strip()
+            else:
+                account = (account_name or "").strip()
+            symbol = (row.get(final_map["Symbol"], "") or "").strip()
+            side = (row.get(final_map["Side"], "") or "").strip().capitalize()
+            open_time_str = (row.get(final_map["Open Time"], "") or "").strip()
+            close_time_str = (row.get(final_map.get("Close Time",""), "") or "").strip()
 
-            qty = (row.get(mapping.get("Quantity",""), "") or "0").strip()
-            entry = (row.get(mapping.get("Entry Price",""), "") or "0").strip()
-            exitp = (row.get(mapping.get("Exit Price",""), "") or "").strip()
+            qty = (row.get(final_map.get("Quantity",""), "") or "0").strip()
+            entry = (row.get(final_map.get("Entry Price",""), "") or "0").strip()
+            exitp = (row.get(final_map.get("Exit Price",""), "") or "").strip()
 
-            fees = (row.get(mapping.get("Fees",""), "") or "").strip()
-            net = (row.get(mapping.get("Net PnL",""), "") or "").strip()
-            extid = (row.get(mapping.get("ExternalTradeID",""), "") or "").strip()
-            notes = (row.get(mapping.get("Notes",""), "") or "").strip()
+            fees = (row.get(final_map.get("Fees",""), "") or "").strip()
+            net = (row.get(final_map.get("Net PnL",""), "") or "").strip()
+            extid = (row.get(final_map.get("ExternalTradeID",""), "") or "").strip()
+            notes = (row.get(final_map.get("Notes",""), "") or "").strip()
 
-            open_dt = _parse_dt(open_time_str)
-            close_dt = _parse_dt(close_time_str) if close_time_str else None
+            open_dt = _parse_dt(open_time_str, tz)
+            close_dt = _parse_dt(close_time_str, tz) if close_time_str else None
 
-            qty_f   = float(qty)   if qty   else None
-            entry_f = float(entry) if entry else None
-            exit_f  = float(exitp) if exitp else None
-            fees_f  = float(fees)  if fees  not in ("", None) else None
-            net_f   = float(net)   if net   not in ("", None) else None
+            qty_f   = _parse_number(qty)
+            entry_f = _parse_number(entry)
+            exit_f  = _parse_number(exitp)
+            fees_f  = _parse_number(fees)
+            net_f   = _parse_number(net)
 
-            trade_key = _build_trade_key(account, symbol, side, open_time_str, qty, entry)
+            # Resolve account row → model
+            acct = None
+            if account_id:
+                acct = db.query(Account).filter(Account.id == account_id, Account.user_id == current.id).first()
+                if not acct:
+                    raise ValueError("Account ID not found")
+            elif account:
+                acct = _get_or_create_account(db, account, current.id)
 
-            acct = _get_or_create_account(db, account) if account else None
+            # Build a stable dedupe key using normalized values (UTC time, rounded qty/price)
+            ot_utc_str = open_dt.strftime("%Y-%m-%d %H:%M:%S")
+            qty_norm = _norm_qty_str(qty_f)
+            entry_norm = _norm_price_str(entry_f)
+            trade_key = _build_trade_key(account or (acct.name if acct else ""), symbol, side, ot_utc_str, qty_norm, entry_norm)
+
             inst = _get_or_create_instrument(db, symbol) if symbol else None
 
             existing = db.query(Trade).filter(Trade.trade_key == trade_key).first()
@@ -279,13 +442,180 @@ async def commit_csv(
             errors.append({"line": lineno, "reason": str(e)})
             skipped += 1
 
+    # persist summary on the upload row
+    upload.inserted_count = inserted
+    upload.updated_count = updated
+    upload.skipped_count = skipped
+    upload.error_count = len(errors)
+    # store a trimmed error list as JSON (up to 100 entries)
+    try:
+        upload.errors_json = json.dumps(errors[:100]) if errors else None
+    except Exception:
+        upload.errors_json = None
+
+    # Optional: save mapping as a user preset on success
+    if save_as:
+        try:
+            exists = db.query(MappingPreset).filter(
+                MappingPreset.user_id == current.id,
+                MappingPreset.name == save_as,
+            ).first()
+            if not exists:
+                pr = MappingPreset(
+                    user_id=current.id,
+                    name=save_as,
+                    headers_json=json.dumps(headers),
+                    mapping_json=json.dumps(final_map),
+                )
+                db.add(pr)
+        except Exception:
+            pass  # don't fail commit if preset save fails
+
     db.commit()
     return {
         "detected_preset": preset,
-        "mapping": mapping,
+        "mapping": final_map,
         "inserted": inserted,
         "updated": updated,
         "skipped": skipped,
         "errors": errors[:20],
         "upload_id": upload.id,
     }
+
+def resolve_mapping(db: Session, user_id: int | None, headers: list[str], preset_name: str | None, override_json: str | None, auto_mapping: dict, *, allow_missing_account: bool = False) -> dict:
+    final = dict(auto_mapping)  # start from detected
+    # apply preset if present
+    if preset_name and user_id:
+        pr = db.query(MappingPreset).filter(MappingPreset.user_id == user_id, MappingPreset.name == preset_name).first()
+        if not pr:
+            raise HTTPException(404, detail="Preset not found")
+        preset_map = json.loads(pr.mapping_json)
+        final.update(preset_map)
+    # apply override
+    if override_json:
+        try:
+            override = json.loads(override_json)
+            if not isinstance(override, dict):
+                raise ValueError("mapping override must be an object")
+            final.update(override)
+        except Exception as e:
+            raise HTTPException(400, detail=f"Invalid mapping JSON: {e}")
+
+    hdrs = set(headers)
+    required = list(CANON_REQUIRED)
+    if allow_missing_account and "Account" in required:
+        required.remove("Account")
+    missing = [c for c in required if c not in final]
+    invalid = [k for k,v in final.items() if v not in hdrs]
+    if missing:
+        raise HTTPException(400, detail=f"Missing required canonical fields: {missing}")
+    if invalid:
+        raise HTTPException(400, detail=f"Mapping points to headers not present: {invalid}")
+    return final
+
+
+@router.post("/preview")
+async def preview_csv(
+    file: UploadFile = File(...),
+    mapping: str | None = Form(None),         # JSON string override
+    preset_name: str | None = Form(None),
+    save_as: str | None = Form(None),
+    account_name: str | None = Form(None),
+    account_id: int | None = Form(None),
+    tz: str | None = Form(None),
+    db: Session = Depends(get_db),
+    current: User | None = Depends(get_optional_user),
+):
+    content = await file.read()
+    if len(content) > int(MAX_UPLOAD_MB * 1024 * 1024):
+        raise HTTPException(status_code=413, detail=f"File exceeds limit of {int(MAX_UPLOAD_MB)} MB")
+    text = content.decode("utf-8", errors="replace")
+    f = io.StringIO(text)
+    row_reader = csv.reader(f)
+    try:
+        raw_headers = next(row_reader)
+    except StopIteration:
+        raise HTTPException(status_code=400, detail="CSV appears empty")
+    headers = _unique_headers([h.strip() for h in raw_headers])
+    if not headers:
+        raise HTTPException(status_code=400, detail="CSV appears to have no header row")
+
+    preset = _detect_preset(headers)
+    auto_map = _build_mapping(preset, headers)
+    allow_missing_account = bool(account_name or account_id)
+    resolved = resolve_mapping(db, getattr(current, "id", None), headers, preset_name, mapping, auto_map, allow_missing_account=allow_missing_account)
+
+    rows_total = rows_valid = rows_invalid = 0
+    preview = []
+    for lineno, raw in enumerate(row_reader, start=2):
+        rows_total += 1
+        row = {headers[i]: (raw[i] if i < len(raw) else "") for i in range(len(headers))}
+        try:
+            # minimal parse using resolved mapping
+            required = ["Symbol","Side","Open Time","Quantity","Entry Price"]
+            if "Account" in resolved:
+                _ = row[resolved["Account"]]
+            for k in required:
+                _ = row[resolved[k]]
+            # try parse datetime with tz
+            _ = _parse_dt(row[resolved["Open Time"]], tz)
+            rows_valid += 1
+            if len(preview) < 5:  # first 5 rows
+                preview.append({k: row.get(v, "") for k, v in resolved.items()})
+        except Exception:
+            rows_invalid += 1
+
+    return {
+        "detected_preset": preset,
+        "applied_mapping": resolved,
+        "plan": {"rows_total": rows_total, "rows_valid": rows_valid, "rows_invalid": rows_invalid},
+        "preview": preview,
+        "tz": tz,
+    }
+
+
+@router.delete("/{upload_id}")
+def delete_upload(upload_id: int, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    # Ensure upload belongs to current user
+    upload = db.query(Upload).filter(Upload.id == upload_id, Upload.user_id == current.id).first()
+    if not upload:
+        raise HTTPException(404, detail="Upload not found")
+
+    # Delete trades that came from this upload (scoped to user's accounts for safety)
+    # Join via Account to guarantee ownership
+    trade_q = db.query(Trade).join(Account, Account.id == Trade.account_id).filter(
+        Trade.source_upload_id == upload.id,
+        Account.user_id == current.id,
+    )
+    deleted_trades = 0
+    for t in trade_q.all():
+        db.delete(t)
+        deleted_trades += 1
+
+    # Finally delete the upload record
+    db.delete(upload)
+    db.commit()
+    return {"deleted_trades": deleted_trades, "deleted_upload": upload_id}
+
+
+@router.get("/{upload_id}/errors.csv")
+def download_errors_csv(upload_id: int, db: Session = Depends(get_db), current: User = Depends(get_current_user)):
+    upload = db.query(Upload).filter(Upload.id == upload_id, Upload.user_id == current.id).first()
+    if not upload:
+        raise HTTPException(404, detail="Upload not found")
+    if not upload.errors_json:
+        # No errors recorded; return an empty CSV with header
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("line,reason\n", media_type="text/csv")
+    try:
+        errs = json.loads(upload.errors_json) or []
+    except Exception:
+        errs = []
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["line", "reason"])
+    for e in errs:
+        w.writerow([e.get("line", ""), e.get("reason", "")])
+    csv_text = output.getvalue()
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(csv_text, media_type="text/csv")
