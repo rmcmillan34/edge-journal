@@ -70,10 +70,16 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
           .tbl-head { background: #f1f5f9; color: #334155; }
           .tbl-head th { font-weight: 600; }
           .dark .tbl-head { background: var(--ctp-surface1) !important; color: var(--ctp-subtext1) !important; }
-          .tbl tbody tr:nth-child(even){ background: #f8fafc; }
-          .tbl tbody tr:hover{ background: #eef2f7; }
-          .dark .tbl tbody tr:nth-child(even){ background: var(--ctp-surface0) !important; }
-          .dark .tbl tbody tr:hover{ background: var(--ctp-surface1) !important; }
+
+          /* Apply zebra + hover to all app tables by default (opt-out via .no-zebra) */
+          table:not(.no-zebra) tbody tr:nth-child(even){ background: #f8fafc; }
+          table:not(.no-zebra) tbody tr:hover{ background: #eef2f7; }
+          .dark table:not(.no-zebra) tbody tr:nth-child(even){ background: var(--ctp-surface0) !important; }
+          .dark table:not(.no-zebra) tbody tr:hover{ background: var(--ctp-surface1) !important; }
+          /* Default header styling for tables without explicit .tbl-head */
+          table:not(.no-zebra) thead tr { background: #f1f5f9; color: #334155; }
+          table:not(.no-zebra) thead th { font-weight: 600; }
+          .dark table:not(.no-zebra) thead tr { background: var(--ctp-surface1) !important; color: var(--ctp-subtext1) !important; }
 
           /* Notices */
           .dark .notice{ background: var(--ctp-surface1) !important; color: var(--ctp-text) !important; border-color: var(--ctp-surface2) !important; }
