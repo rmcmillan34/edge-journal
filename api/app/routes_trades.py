@@ -4,7 +4,7 @@ from typing import List, Optional
 from .db import get_db
 from .deps import get_current_user
 from .models import Trade, Account, Instrument, Attachment
-from .schemas import TradeOut, TradeCreate, TradeUpdate, TradeDetailOut, AttachmentOut
+from .schemas import TradeOut, TradeCreate, TradeUpdate, TradeDetailOut, AttachmentOut, AttachmentUpdate
 from datetime import datetime, timedelta, timezone
 import os, shutil
 from fastapi.responses import FileResponse
@@ -560,6 +560,46 @@ def delete_attachment(trade_id: int, att_id: int, db: Session = Depends(get_db),
     return {"deleted": att_id}
 
 
+@router.patch("/{trade_id}/attachments/{att_id}", response_model=AttachmentOut)
+def update_attachment(
+    trade_id: int,
+    att_id: int,
+    body: AttachmentUpdate,
+    db: Session = Depends(get_db),
+    current = Depends(get_current_user),
+):
+    # ownership
+    a = db.query(Attachment).join(Trade, Trade.id == Attachment.trade_id).join(Account, Account.id == Trade.account_id, isouter=True).\
+        filter(Attachment.id == att_id, Trade.id == trade_id, Account.user_id == current.id).first()
+    if not a:
+        raise HTTPException(404, detail="Attachment not found")
+    if body.timeframe is not None:
+        a.timeframe = body.timeframe
+    if body.state is not None:
+        a.state = body.state
+    if body.view is not None:
+        a.view = body.view
+    if body.caption is not None:
+        a.caption = body.caption
+    if body.reviewed is not None:
+        a.reviewed = bool(body.reviewed)
+    db.commit(); db.refresh(a)
+    return AttachmentOut(
+        id=a.id,
+        filename=a.filename,
+        mime_type=a.mime_type,
+        size_bytes=a.size_bytes,
+        timeframe=a.timeframe,
+        state=a.state,
+        view=a.view,
+        caption=a.caption,
+        reviewed=bool(a.reviewed),
+        thumb_available=bool(a.thumb_path),
+        thumb_url=(f"/trades/{trade_id}/attachments/{a.id}/thumb" if a.thumb_path else None),
+        sort_order=a.sort_order,
+    )
+
+
 @router.post("/{trade_id}/attachments/reorder")
 def reorder_attachments(trade_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
     # validate ownership and that all ids belong to this trade
@@ -598,3 +638,38 @@ def batch_delete_attachments(trade_id: int, ids: List[int], db: Session = Depend
         db.delete(a); count += 1
     db.commit()
     return {"deleted": count}
+
+
+@router.post("/{trade_id}/attachments/zip")
+def zip_trade_attachments(trade_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
+    # ensure ownership
+    t = db.query(Trade).join(Account, Account.id == Trade.account_id, isouter=True).filter(Trade.id == trade_id, Account.user_id == current.id).first()
+    if not t:
+        raise HTTPException(404, detail="Trade not found")
+    if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+        raise HTTPException(400, detail="Body must be a list of attachment IDs")
+    rows = db.query(Attachment).filter(Attachment.trade_id == trade_id, Attachment.id.in_(ids)).all()
+    if not rows:
+        raise HTTPException(404, detail="No attachments found")
+
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+    import zipfile, os
+
+    def iter_zip():
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
+            for a in rows:
+                try:
+                    arcname = a.filename or f"att-{a.id}"
+                    if a.storage_path and os.path.exists(a.storage_path):
+                        z.write(a.storage_path, arcname=arcname)
+                except Exception:
+                    continue
+        buf.seek(0)
+        data = buf.read()
+        yield data
+
+    filename = f"trade-{trade_id}-attachments.zip"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+    return StreamingResponse(iter_zip(), media_type="application/zip", headers=headers)

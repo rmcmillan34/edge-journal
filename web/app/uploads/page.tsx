@@ -9,12 +9,13 @@ type UploadRow = {
 export default function UploadsHistory(){
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
   const [rows, setRows] = useState<UploadRow[]>([]);
-  const [token, setToken] = useState<string>("");
+  const [token, setToken] = useState<string>(()=>{ try{ return localStorage.getItem('ej_token') || ""; }catch{ return ""; } });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { try { setToken(localStorage.getItem("ej_token") || ""); } catch{} }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   async function load(){
     setError(null); setLoading(true);
@@ -27,16 +28,30 @@ export default function UploadsHistory(){
     finally{ setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [token]);
+  useEffect(() => { if (token) load(); }, [token]);
+
+  if (!mounted){
+    return (
+      <main style={{maxWidth: 900, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
+        <h1>Imports</h1>
+        <div style={{color:'#64748b'}}>Loading…</div>
+      </main>
+    );
+  }
 
   return (
     <main style={{maxWidth: 900, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
       <h1>Imports</h1>
       {error && <p style={{color:'crimson'}}>{error}</p>}
+      {!token && (
+        <div className="notice" style={{margin:'8px 0', padding:'8px 12px', border:'1px solid #fde68a', background:'#fffbeb', color:'#92400e', borderRadius:8}}>
+          Please <a href="/auth/login">sign in</a> to view imports.
+        </div>
+      )}
       <div style={{overflowX:'auto'}}>
         <table cellPadding={6} style={{width:'100%', borderCollapse:'collapse'}}>
           <thead>
-            <tr style={{background:'#f8fafc'}}>
+            <tr className="tbl-head">
               <th>When</th><th>File</th><th>Preset</th><th>TZ</th><th>Inserted</th><th>Updated</th><th>Skipped</th><th>Errors</th><th>Actions</th>
             </tr>
           </thead>

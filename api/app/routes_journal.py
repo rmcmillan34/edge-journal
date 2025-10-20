@@ -6,13 +6,15 @@ from datetime import datetime, date
 from .db import get_db
 from .deps import get_current_user
 from .models import DailyJournal, DailyJournalTradeLink, Trade, Account
-from .schemas import DailyJournalUpsert, DailyJournalOut, AttachmentOut
+from .schemas import DailyJournalUpsert, DailyJournalOut, AttachmentOut, AttachmentUpdate
 from fastapi import UploadFile, File, Form
 from fastapi.responses import FileResponse
 import os
 from datetime import datetime as dt
 from io import BytesIO
 from .models import Attachment
+from fastapi.responses import StreamingResponse
+import zipfile
 
 
 router = APIRouter(prefix="/journal", tags=["journal"])
@@ -143,7 +145,12 @@ def _ensure_journal_owned(db: Session, current, journal_id: int) -> DailyJournal
 @router.get("/{journal_id}/attachments", response_model=list[AttachmentOut])
 def list_journal_attachments(journal_id: int, db: Session = Depends(get_db), current = Depends(get_current_user)):
     _ensure_journal_owned(db, current, journal_id)
-    rows = db.query(Attachment).filter(Attachment.journal_id == journal_id).order_by(Attachment.created_at.asc()).all()
+    rows = (
+        db.query(Attachment)
+        .filter(Attachment.journal_id == journal_id)
+        .order_by(Attachment.sort_order.asc(), Attachment.created_at.asc())
+        .all()
+    )
     out: list[AttachmentOut] = []
     for a in rows:
         out.append(AttachmentOut(
@@ -231,6 +238,16 @@ async def upload_journal_attachment(
         except Exception:
             pass
 
+    # choose next sort order for this journal
+    current_max = (
+        db.query(Attachment)
+        .filter(Attachment.journal_id == journal_id)
+        .order_by(Attachment.sort_order.desc())
+        .limit(1)
+        .first()
+    )
+    next_order = (current_max.sort_order if current_max else 0) + 1
+
     a = Attachment(
         trade_id=0,  # unused for journal
         journal_id=journal_id,
@@ -240,6 +257,7 @@ async def upload_journal_attachment(
         size_bytes=len(content),
         storage_path=path,
         thumb_path=thumb_path,
+        sort_order=next_order,
         timeframe=timeframe,
         state=state,
         view=view,
@@ -297,3 +315,103 @@ def delete_journal_attachment(journal_id: int, att_id: int, db: Session = Depend
         pass
     db.delete(a); db.commit()
     return {"deleted": att_id}
+
+
+@router.patch("/{journal_id}/attachments/{att_id}", response_model=AttachmentOut)
+def update_journal_attachment(
+    journal_id: int,
+    att_id: int,
+    body: AttachmentUpdate,
+    db: Session = Depends(get_db),
+    current = Depends(get_current_user),
+):
+    _ensure_journal_owned(db, current, journal_id)
+    a = db.query(Attachment).filter(Attachment.id == att_id, Attachment.journal_id == journal_id).first()
+    if not a:
+        raise HTTPException(404, detail="Attachment not found")
+    if body.timeframe is not None:
+        a.timeframe = body.timeframe
+    if body.state is not None:
+        a.state = body.state
+    if body.view is not None:
+        a.view = body.view
+    if body.caption is not None:
+        a.caption = body.caption
+    if body.reviewed is not None:
+        a.reviewed = bool(body.reviewed)
+    db.commit(); db.refresh(a)
+    return AttachmentOut(
+        id=a.id,
+        filename=a.filename,
+        mime_type=a.mime_type,
+        size_bytes=a.size_bytes,
+        timeframe=a.timeframe,
+        state=a.state,
+        view=a.view,
+        caption=a.caption,
+        reviewed=bool(a.reviewed),
+        thumb_available=bool(a.thumb_path),
+        thumb_url=(f"/journal/{journal_id}/attachments/{a.id}/thumb" if a.thumb_path else None),
+    )
+
+
+@router.post("/{journal_id}/attachments/reorder")
+def reorder_journal_attachments(journal_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
+    _ensure_journal_owned(db, current, journal_id)
+    if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+        raise HTTPException(400, detail="Body must be a list of attachment IDs")
+    rows = db.query(Attachment).filter(Attachment.journal_id == journal_id, Attachment.id.in_(ids)).all()
+    if len(rows) != len(set(ids)):
+        raise HTTPException(400, detail="One or more attachments invalid")
+    for idx, att_id in enumerate(ids):
+        db.query(Attachment).filter(Attachment.id == att_id).update({Attachment.sort_order: idx})
+    db.commit()
+    return {"reordered": len(ids)}
+
+
+@router.post("/{journal_id}/attachments/batch-delete")
+def batch_delete_journal_attachments(journal_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
+    _ensure_journal_owned(db, current, journal_id)
+    if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+        raise HTTPException(400, detail="Body must be a list of attachment IDs")
+    rows = db.query(Attachment).filter(Attachment.journal_id == journal_id, Attachment.id.in_(ids)).all()
+    count = 0
+    for a in rows:
+        try:
+            if a.storage_path and os.path.exists(a.storage_path):
+                os.remove(a.storage_path)
+            if a.thumb_path and os.path.exists(a.thumb_path):
+                os.remove(a.thumb_path)
+        except Exception:
+            pass
+        db.delete(a); count += 1
+    db.commit()
+    return {"deleted": count}
+
+
+@router.post("/{journal_id}/attachments/zip")
+def zip_journal_attachments(journal_id: int, ids: List[int], db: Session = Depends(get_db), current = Depends(get_current_user)):
+    _ensure_journal_owned(db, current, journal_id)
+    if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+        raise HTTPException(400, detail="Body must be a list of attachment IDs")
+    rows = db.query(Attachment).filter(Attachment.journal_id == journal_id, Attachment.id.in_(ids)).all()
+    if not rows:
+        raise HTTPException(404, detail="No attachments found")
+
+    def iter_zip():
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
+            for a in rows:
+                try:
+                    arcname = a.filename or f"att-{a.id}"
+                    if a.storage_path and os.path.exists(a.storage_path):
+                        z.write(a.storage_path, arcname=arcname)
+                except Exception:
+                    continue
+        buf.seek(0)
+        data = buf.read()
+        yield data
+
+    filename = f"journal-{journal_id}-attachments.zip"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+    return StreamingResponse(iter_zip(), media_type="application/zip", headers=headers)

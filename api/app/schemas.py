@@ -105,6 +105,14 @@ class AttachmentOut(BaseModel):
     sort_order: Optional[int] = None
 
 
+class AttachmentUpdate(BaseModel):
+    timeframe: Optional[str] = None
+    state: Optional[str] = None
+    view: Optional[str] = None
+    caption: Optional[str] = None
+    reviewed: Optional[bool] = None
+
+
 class TradeDetailOut(TradeOut):
     notes_md: Optional[str]
     post_analysis_md: Optional[str]

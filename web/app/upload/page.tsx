@@ -17,7 +17,8 @@ export default function UploadPage() {
   const [result, setResult] = useState<any>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Mapping>({});
-  const [token, setToken] = useState<string>("");
+  const [token, setToken] = useState<string>(()=>{ try{ return localStorage.getItem('ej_token') || ""; }catch{ return ""; } });
+  const [mounted, setMounted] = useState(false);
   const [presetName, setPresetName] = useState<string>("");
   const [applyPresetOnPreview, setApplyPresetOnPreview] = useState<boolean>(true);
   const [accountName, setAccountName] = useState<string>("");
@@ -30,11 +31,10 @@ export default function UploadPage() {
 
   useEffect(() => {
     try {
-      const t = localStorage.getItem("ej_token") || "";
-      if (t) setToken(t);
       const savedTz = localStorage.getItem("ej_tz") || "";
       if (savedTz) setTz(savedTz);
     } catch {}
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -188,7 +188,7 @@ export default function UploadPage() {
         <button type="submit" disabled={loading}>{loading ? 'Uploading…' : 'Initial Preview'}</button>
         <input placeholder="Bearer token (optional)" value={token} onChange={e=>setToken(e.target.value)} style={{flex:1}} />
       </form>
-      {!token && (
+      {mounted && !token && (
         <div style={{marginBottom:8, padding:'8px 12px', border:'1px solid #fde68a', background:'#fffbeb', color:'#92400e', borderRadius:8}}>
           Tip: <a href="/auth/login">Sign in</a> to commit trades and save presets.
         </div>

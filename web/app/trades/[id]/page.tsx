@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Attachment = {
   id: number;
@@ -32,6 +32,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState("");
   const [postNotes, setPostNotes] = useState("");
+  const notesRef = useRef<HTMLTextAreaElement | null>(null);
   const [attMeta, setAttMeta] = useState({ timeframe:"", state:"", view:"", caption:"", reviewed:false });
   const [files, setFiles] = useState<FileList | null>(null);
   const [tpls, setTpls] = useState<any[]>([]);
@@ -39,9 +40,26 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
   const [tplChecks, setTplChecks] = useState<Record<number, boolean>>({});
   const [attSel, setAttSel] = useState<number[]>([]);
   const [reorderMode, setReorderMode] = useState(false);
+  const [editMap, setEditMap] = useState<Record<number, {timeframe:string; state:string; view:string; caption:string; reviewed:boolean} | null>>({});
 
   useEffect(()=>{ try { setToken(localStorage.getItem("ej_token") || ""); } catch{} },[]);
   useEffect(()=>{ if (token){ reload(); loadTemplates(); } }, [token]);
+
+  // Cmd/Ctrl+S to save notes; Esc to exit reorder mode
+  useEffect(()=>{
+    function onKey(e: KeyboardEvent){
+      if ((e.key === 's' || e.key === 'S') && (e.metaKey || e.ctrlKey)){
+        e.preventDefault();
+        saveNotes();
+      }
+      if (e.key === 'Escape' && reorderMode){
+        e.preventDefault();
+        setReorderMode(false);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return ()=> window.removeEventListener('keydown', onKey);
+  }, [reorderMode, notes, postNotes, token]);
 
   async function loadTemplates(){
     try{
@@ -135,6 +153,22 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
     }catch(e:any){ setError(e.message || String(e)); }
   }
 
+  function startEdit(a: Attachment){
+    setEditMap(m => ({...m, [a.id]: { timeframe:a.timeframe||"", state:a.state||"", view:a.view||"", caption:a.caption||"", reviewed:!!a.reviewed }}));
+  }
+  function cancelEdit(id:number){ setEditMap(m=> ({...m, [id]: null})); }
+  async function saveEdit(a: Attachment){
+    if (!token) { setError('Login required'); return; }
+    const e = editMap[a.id]; if (!e) return;
+    try{
+      const r = await fetch(`${API_BASE}/trades/${params.id}/attachments/${a.id}`, { method:'PATCH', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(e) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Update failed: ${r.status}`); }
+      await reload();
+      setEditMap(m=> ({...m, [a.id]: null}));
+      try{ (await import('../../../components/Toaster')).toast('Attachment updated','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
   async function deleteSelectedAtts(){
     if (!token){ setError('Login required'); return; }
     if (!data){ setError('No trade loaded'); return; }
@@ -222,7 +256,22 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
                           parts.push(`## ${s.heading}\n\n${s.placeholder||''}\n`);
                         }
                       });
-                      setNotes(prev => (prev ? prev+"\n\n" : "") + parts.join("\n"));
+                      const insertStr = (notes ? "\n\n" : "") + parts.join("\n");
+                      const ta = notesRef.current;
+                      if (ta && typeof ta.selectionStart === 'number' && typeof ta.selectionEnd === 'number'){
+                        const start = ta.selectionStart; const end = ta.selectionEnd;
+                        setNotes(prev => prev.slice(0, start) + insertStr + prev.slice(end));
+                        // restore focus and selection after state update
+                        requestAnimationFrame(()=>{
+                          try{
+                            ta.focus();
+                            const pos = start + insertStr.length;
+                            ta.setSelectionRange(pos, pos);
+                          }catch{}
+                        });
+                      } else {
+                        setNotes(prev => (prev ? prev+"\n\n" : "") + parts.join("\n"));
+                      }
                     }}>Insert</button>
                   </div>
                   {!!tplId && (
@@ -238,7 +287,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
                   )}
                 </div>
               )}
-              <textarea rows={8} value={notes} onChange={e=>setNotes(e.target.value)} style={{width:'100%'}} />
+              <textarea ref={notesRef} rows={8} value={notes} onChange={e=>setNotes(e.target.value)} style={{width:'100%'}} />
               <div style={{margin: '12px 0 8px'}}>Post‑trade Analysis (Markdown):</div>
               <textarea rows={8} value={postNotes} onChange={e=>setPostNotes(e.target.value)} style={{width:'100%'}} />
               <div style={{marginTop:8}}>
@@ -276,6 +325,18 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
                     {!!attSel.length && <span style={{color:'#64748b'}}>{attSel.length} selected</span>}
                   </div>
                   <div>
+                    <button onClick={async ()=>{
+                      if (!attSel.length) return;
+                      try{
+                        const r = await fetch(`${API_BASE}/trades/${params.id}/attachments/zip`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(attSel) });
+                        if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Download failed: ${r.status}`); }
+                        const blob = await r.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `trade-${params.id}-attachments.zip`; document.body.appendChild(a); a.click(); a.remove();
+                        URL.revokeObjectURL(url);
+                      }catch(e:any){ setError(e.message || String(e)); }
+                    }} disabled={!attSel.length} style={{marginRight:8}}>Download Selected</button>
                     <button onClick={deleteSelectedAtts} disabled={!attSel.length}>Delete Selected</button>
                   </div>
                 </div>
@@ -287,7 +348,14 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
                       <div key={a.id} draggable={reorderMode} onDragStart={e=>onDragStart(e, a.id)} onDragOver={e=>{ if (reorderMode) e.preventDefault(); }} onDrop={e=>onDrop(e, a.id)} style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8}}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6}}>
                           <input type="checkbox" checked={attSel.includes(a.id)} onChange={e=> setAttSel(prev => e.target.checked ? Array.from(new Set([...prev, a.id])) : prev.filter(x=>x!==a.id)) } />
-                          {reorderMode && <span style={{color:'#64748b', fontSize:12, userSelect:'none'}}>Drag to reorder</span>}
+                          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                            {reorderMode && <span style={{color:'#64748b', fontSize:12, userSelect:'none'}}>Drag to reorder</span>}
+                            {!reorderMode && (editMap[a.id] ? (
+                              <button onClick={()=>cancelEdit(a.id)}>Cancel</button>
+                            ) : (
+                              <button onClick={()=>startEdit(a)}>Edit</button>
+                            ))}
+                          </div>
                         </div>
                         {a.thumb_available && a.thumb_url ? (
                           <a href={`${API_BASE}/trades/${params.id}/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
@@ -302,6 +370,27 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
                         <div style={{color:'#64748b', fontSize:11}}>
                           {a.timeframe || '-'} · {a.state || '-'} · {a.view || '-'} · {a.reviewed ? 'reviewed' : 'unreviewed'}
                         </div>
+                        {editMap[a.id] && (
+                          <div style={{display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:6, marginTop:8, alignItems:'center'}}>
+                            <select value={editMap[a.id]!.timeframe} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), timeframe:e.target.value}}))}>
+                              <option value="">Timeframe</option>
+                              {["M1","M5","M15","M30","H1","H4","D1"].map(t => (<option key={t} value={t}>{t}</option>))}
+                            </select>
+                            <select value={editMap[a.id]!.state} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), state:e.target.value}}))}>
+                              <option value="">State</option>
+                              {["marked","unmarked"].map(t => (<option key={t} value={t}>{t}</option>))}
+                            </select>
+                            <select value={editMap[a.id]!.view} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), view:e.target.value}}))}>
+                              <option value="">View</option>
+                              {["entry","management","exit","post"].map(t => (<option key={t} value={t}>{t}</option>))}
+                            </select>
+                            <label>
+                              <input type="checkbox" checked={editMap[a.id]!.reviewed} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), reviewed:e.target.checked}}))} /> Reviewed
+                            </label>
+                            <input placeholder="Caption" value={editMap[a.id]!.caption} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), caption:e.target.value}}))} style={{gridColumn:'1 / span 3'}} />
+                            <button onClick={()=>saveEdit(a)} style={{gridColumn:'4 / span 1'}}>Save</button>
+                          </div>
+                        )}
                         <div style={{display:'flex', gap:8, marginTop:6}}>
                           <a href={`${API_BASE}/trades/${params.id}/attachments/${a.id}/download`} target="_blank" rel="noreferrer">Download</a>
                           <button onClick={()=>delAtt(a.id)}>Delete</button>

@@ -1,5 +1,6 @@
 SHELL := /bin/bash
 .PHONY: up down logs fmt lint test api web build-api migrate
+.PHONY: fonts
 
 up:
 	docker compose up --build
@@ -34,3 +35,10 @@ migrate:
 	# Ensure DB is up and run Alembic against Postgres in compose
 	docker compose up -d db
 	docker compose run --rm -e PYTHONPATH=/app -e DATABASE_URL=postgresql+psycopg2://edge:edge@db:5432/edgejournal api alembic upgrade head
+
+fonts:
+	@echo "Fetching Iosevka Nerd Font (Regular/Bold) into web/public/fonts"
+	@mkdir -p web/public/fonts
+	@curl -L -o /tmp/IosevkaNF.zip https://github.com/ryanoasis/nerd-fonts/releases/download/v3.1.0/Iosevka.zip
+	@unzip -j -o /tmp/IosevkaNF.zip "*IosevkaNerdFont-Regular.ttf" "*IosevkaNerdFont-Bold.ttf" -d web/public/fonts
+	@ls -la web/public/fonts

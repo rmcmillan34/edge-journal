@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Journal = { id:number; date:string; title?:string|null; notes_md?:string|null; reviewed:boolean; account_id?:number|null; trade_ids:number[] };
 type Trade = { id:number; account_name?:string|null; symbol?:string|null; side:string; qty_units?:number|null; entry_price?:number|null; exit_price?:number|null; open_time_utc:string; close_time_utc?:string|null; net_pnl?:number|null };
@@ -22,9 +22,24 @@ export default function JournalPage({ params }:{ params: { date: string } }){
   const [tpls, setTpls] = useState<any[]>([]);
   const [tplId, setTplId] = useState<number | "">("");
   const [tplChecks, setTplChecks] = useState<Record<number, boolean>>({});
+  const notesRef = useRef<HTMLTextAreaElement | null>(null);
+  const [attSel, setAttSel] = useState<number[]>([]);
+  const [reorderMode, setReorderMode] = useState(false);
 
   useEffect(()=>{ try{ setToken(localStorage.getItem("ej_token") || ""); }catch{} }, []);
   useEffect(()=>{ if (token){ reload(); loadTrades(); loadTemplates(); } }, [token, d]);
+
+  // Cmd/Ctrl+S to save journal
+  useEffect(()=>{
+    function onKey(e: KeyboardEvent){
+      if ((e.key === 's' || e.key === 'S') && (e.metaKey || e.ctrlKey)){
+        e.preventDefault();
+        save();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return ()=> window.removeEventListener('keydown', onKey);
+  }, [title, notes, token, d]);
 
   async function loadTemplates(){
     try{
@@ -117,6 +132,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
     const r = await fetch(`${API_BASE}/journal/${journalId}/attachments`, { headers });
     const j = await r.json(); if (!r.ok){ setError(j.detail || `Failed: ${r.status}`); return; }
     setAtts(j || []);
+    setAttSel([]);
   }
 
   async function uploadAtts(){
@@ -151,6 +167,52 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
       await loadAtts(data.id);
       try{ (await import('../../../components/Toaster')).toast('Attachment deleted','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  const [editMap, setEditMap] = useState<Record<number, {timeframe:string; state:string; view:string; caption:string; reviewed:boolean} | null>>({});
+  function startEdit(a: Attachment){
+    setEditMap(m => ({...m, [a.id]: { timeframe:a.timeframe||"", state:a.state||"", view:a.view||"", caption:a.caption||"", reviewed:!!a.reviewed }}));
+  }
+  function cancelEdit(id:number){ setEditMap(m=> ({...m, [id]: null})); }
+  async function saveEdit(a: Attachment){
+    if (!token || !data){ setError('Login required'); return; }
+    const e = editMap[a.id]; if (!e) return;
+    try{
+      const r = await fetch(`${API_BASE}/journal/${data.id}/attachments/${a.id}`, { method:'PATCH', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(e) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Update failed: ${r.status}`); }
+      await loadAtts(data.id);
+      setEditMap(m=> ({...m, [a.id]: null}));
+      try{ (await import('../../../components/Toaster')).toast('Attachment updated','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function deleteSelectedAtts(){
+    if (!token || !data){ setError('Login required'); return; }
+    if (!attSel.length){ setError('Select attachments'); return; }
+    const ok = confirm(`Delete ${attSel.length} attachment(s)?`); if (!ok) return;
+    try{
+      const r = await fetch(`${API_BASE}/journal/${data.id}/attachments/batch-delete`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(attSel) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
+      await loadAtts(data.id); setAttSel([]);
+      try{ (await import('../../../components/Toaster')).toast('Deleted selected attachments','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  function onDragStart(e: React.DragEvent<HTMLDivElement>, id:number){ if (!reorderMode) return; e.dataTransfer.setData('text/plain', String(id)); }
+  async function onDrop(e: React.DragEvent<HTMLDivElement>, targetId:number){
+    if (!reorderMode || !atts.length || !data) return;
+    const src = parseInt(e.dataTransfer.getData('text/plain'),10);
+    if (!src || src===targetId) return;
+    const order = atts.map(a=>a.id);
+    const from = order.indexOf(src), to = order.indexOf(targetId);
+    if (from<0 || to<0) return;
+    order.splice(to,0, order.splice(from,1)[0]);
+    try{
+      const r = await fetch(`${API_BASE}/journal/${data.id}/attachments/reorder`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(order) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Reorder failed: ${r.status}`); }
+      await loadAtts(data.id);
+      try{ (await import('../../../components/Toaster')).toast('Reordered attachments','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
   }
 
@@ -194,7 +256,21 @@ export default function JournalPage({ params }:{ params: { date: string } }){
                     parts.push(`## ${s.heading}\n\n${s.placeholder||''}\n`);
                   }
                 });
-                setNotes(prev => (prev ? prev+"\n\n" : "") + parts.join("\n"));
+                const insertStr = (notes ? "\n\n" : "") + parts.join("\n");
+                const ta = notesRef.current;
+                if (ta && typeof ta.selectionStart === 'number' && typeof ta.selectionEnd === 'number'){
+                  const start = ta.selectionStart; const end = ta.selectionEnd;
+                  setNotes(prev => prev.slice(0, start) + insertStr + prev.slice(end));
+                  requestAnimationFrame(()=>{
+                    try{
+                      ta.focus();
+                      const pos = start + insertStr.length;
+                      ta.setSelectionRange(pos, pos);
+                    }catch{}
+                  });
+                } else {
+                  setNotes(prev => (prev ? prev+"\n\n" : "") + parts.join("\n"));
+                }
               }}>Insert</button>
             </div>
             {!!tplId && (
@@ -215,7 +291,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
           <span>Notes (Markdown)</span>
           <button onClick={createTemplateFromNotes}>Create template from these notes</button>
         </div>
-        <textarea rows={10} value={notes} onChange={e=>setNotes(e.target.value)} style={{width:'100%'}} />
+        <textarea ref={notesRef} rows={10} value={notes} onChange={e=>setNotes(e.target.value)} style={{width:'100%'}} />
         <div style={{display:'flex', gap:8}}>
           <button onClick={save} disabled={saving}>{saving ? 'Saving…' : (data ? 'Save' : 'Create')}</button>
           {data && (
@@ -266,10 +342,42 @@ export default function JournalPage({ params }:{ params: { date: string } }){
               <button onClick={uploadAtts} disabled={saving} style={{gridColumn:'4 / span 1'}}>{saving ? 'Uploading…' : 'Upload'}</button>
             </div>
             <div style={{marginTop:12}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+                <div style={{display:'flex', alignItems:'center', gap:8}}>
+                  <label><input type="checkbox" checked={reorderMode} onChange={e=>setReorderMode(e.target.checked)} /> Reorder</label>
+                  {!!attSel.length && <span style={{color:'#64748b'}}>{attSel.length} selected</span>}
+                </div>
+                <div>
+                  <button onClick={async ()=>{
+                    if (!data || !attSel.length) return;
+                    try{
+                      const r = await fetch(`${API_BASE}/journal/${data.id}/attachments/zip`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(attSel) });
+                      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Download failed: ${r.status}`); }
+                      const blob = await r.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = `journal-${data.id}-attachments.zip`; document.body.appendChild(a); a.click(); a.remove();
+                      URL.revokeObjectURL(url);
+                    }catch(e:any){ setError(e.message || String(e)); }
+                  }} disabled={!attSel.length} style={{marginRight:8}}>Download Selected</button>
+                  <button onClick={deleteSelectedAtts} disabled={!attSel.length}>Delete Selected</button>
+                </div>
+              </div>
               {!atts.length ? <p style={{color:'#64748b'}}>No attachments</p> : (
                 <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:12}}>
                   {atts.map(a => (
-                    <div key={a.id} style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8}}>
+                    <div key={a.id} draggable={reorderMode} onDragStart={e=>onDragStart(e, a.id)} onDragOver={e=>{ if (reorderMode) e.preventDefault(); }} onDrop={e=>onDrop(e, a.id)} style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8}}>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6}}>
+                        <input type="checkbox" checked={attSel.includes(a.id)} onChange={e=> setAttSel(prev => e.target.checked ? Array.from(new Set([...prev, a.id])) : prev.filter(x=>x!==a.id)) } />
+                        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                          {reorderMode && <span style={{color:'#64748b', fontSize:12, userSelect:'none'}}>Drag to reorder</span>}
+                          {!reorderMode && (editMap[a.id] ? (
+                            <button onClick={()=>cancelEdit(a.id)}>Cancel</button>
+                          ) : (
+                            <button onClick={()=>startEdit(a)}>Edit</button>
+                          ))}
+                        </div>
+                      </div>
                       {a.thumb_available && a.thumb_url ? (
                         <a href={`${API_BASE}/journal/${data!.id}/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
                           <img src={`${API_BASE}${a.thumb_url}`} alt={a.filename} style={{width:'100%',height:120,objectFit:'cover',borderRadius:6, background:'#f8fafc'}} />
@@ -283,6 +391,27 @@ export default function JournalPage({ params }:{ params: { date: string } }){
                       <div style={{color:'#64748b', fontSize:11}}>
                         {a.timeframe || '-'} · {a.state || '-'} · {a.view || '-'} · {a.reviewed ? 'reviewed' : 'unreviewed'}
                       </div>
+                      {editMap[a.id] && (
+                        <div style={{display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:6, marginTop:8, alignItems:'center'}}>
+                          <select value={editMap[a.id]!.timeframe} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), timeframe:e.target.value}}))}>
+                            <option value="">Timeframe</option>
+                            {["M1","M5","M15","M30","H1","H4","D1"].map(t => (<option key={t} value={t}>{t}</option>))}
+                          </select>
+                          <select value={editMap[a.id]!.state} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), state:e.target.value}}))}>
+                            <option value="">State</option>
+                            {["marked","unmarked"].map(t => (<option key={t} value={t}>{t}</option>))}
+                          </select>
+                          <select value={editMap[a.id]!.view} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), view:e.target.value}}))}>
+                            <option value="">View</option>
+                            {["overview","plan","post"].map(t => (<option key={t} value={t}>{t}</option>))}
+                          </select>
+                          <label>
+                            <input type="checkbox" checked={editMap[a.id]!.reviewed} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), reviewed:e.target.checked}}))} /> Reviewed
+                          </label>
+                          <input placeholder="Caption" value={editMap[a.id]!.caption} onChange={e=> setEditMap(m=> ({...m, [a.id]: {...(m[a.id]!), caption:e.target.value}}))} style={{gridColumn:'1 / span 3'}} />
+                          <button onClick={()=>saveEdit(a)} style={{gridColumn:'4 / span 1'}}>Save</button>
+                        </div>
+                      )}
                       <div style={{display:'flex', gap:8, marginTop:6}}>
                         <a href={`${API_BASE}/journal/${data!.id}/attachments/${a.id}/download`} target="_blank" rel="noreferrer">Download</a>
                         <button onClick={()=>delAtt(a.id)}>Delete</button>

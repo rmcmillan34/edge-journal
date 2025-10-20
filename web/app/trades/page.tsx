@@ -22,6 +22,7 @@ function TradesView(){
   const searchParams = useSearchParams();
   const router = useRouter();
   const [token, setToken] = useState<string>("");
+  const [mounted, setMounted] = useState(false);
   const [symbol, setSymbol] = useState("");
   const [account, setAccount] = useState("");
   const [displayTz, setDisplayTz] = useState<string>("");
@@ -87,6 +88,7 @@ function TradesView(){
         if (lsPageSize) setPageSize(parseInt(lsPageSize,10) || 50);
       }
     } catch {}
+    setMounted(true);
   }, [searchParams]);
 
   // Load accounts for account dropdown (datalist)
@@ -274,9 +276,32 @@ function TradesView(){
     finally{ setLoading(false); }
   }
 
-  function openJournal(){
+  function isoToYmdInTz(iso: string, tz?: string){
+    try{
+      const d = new Date(iso);
+      const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz && tz.trim() ? tz : 'UTC', year:'numeric', month:'2-digit', day:'2-digit' });
+      return fmt.format(d); // YYYY-MM-DD
+    }catch{ return iso.slice(0,10); }
+  }
+
+  async function openJournal(){
     if (selected.length !== 1){ setError("Select exactly one trade for journal"); return; }
-    setJournalText(""); setJournalOpen(true);
+    if (!token){ setError('Login required'); return; }
+    const id = selected[0];
+    const trade = items.find(t=>t.id===id);
+    if (!trade){ setError('Trade not found in list'); return; }
+    const ymd = isoToYmdInTz(trade.close_time_utc || trade.open_time_utc, displayTz || undefined);
+    try{
+      // Ensure journal exists (upsert)
+      const r = await fetch(`${API_BASE}/journal/${ymd}`, { method:'PUT', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify({}) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Journal upsert failed: ${r.status}`);
+      const jid = j?.id;
+      if (jid){
+        // Link the selected trade
+        await fetch(`${API_BASE}/journal/${jid}/trades`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify([id]) });
+      }
+      window.location.href = `/journal/${ymd}`;
+    }catch(e:any){ setError(e.message || String(e)); }
   }
 
   async function saveJournal(){
@@ -348,6 +373,15 @@ function TradesView(){
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setLoading(false); }
+  }
+
+  if (!mounted){
+    return (
+      <main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
+        <h1>Trades</h1>
+        <div style={{color:'#64748b'}}>Loading…</div>
+      </main>
+    );
   }
 
   return (
@@ -460,7 +494,7 @@ function TradesView(){
       <div style={{overflowX:'auto'}}>
         <table cellPadding={6} style={{width:'100%', borderCollapse:'collapse'}}>
           <thead style={{position:'sticky', top:0, zIndex:1}}>
-            <tr style={{background:'#f8fafc'}}>
+            <tr className="tbl-head">
               <th><input type="checkbox" checked={allChecked} onChange={e=> setSelected(e.target.checked ? items.map(t=>t.id) : [])} /></th>
               <th style={{cursor:'pointer'}} onClick={()=>toggleSort('account')}>Account{sortIndicator('account')}</th>
               <th style={{cursor:'pointer'}} onClick={()=>toggleSort('symbol')}>Symbol{sortIndicator('symbol')}</th>
@@ -507,16 +541,7 @@ function TradesView(){
           }}>Undo</button>
         </div>
       )}
-      {journalOpen && (
-        <div style={{border:'1px solid #e5e7eb', borderRadius:8, padding:12, marginTop:8}}>
-          <div style={{marginBottom:8}}>Journal notes (Markdown supported):</div>
-          <textarea value={journalText} onChange={e=>setJournalText(e.target.value)} rows={6} style={{width:'100%'}} />
-          <div style={{marginTop:8, display:'flex', gap:8}}>
-            <button onClick={saveJournal} disabled={!journalText.trim()}>Save</button>
-            <button onClick={()=>setJournalOpen(false)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      {/* Inline trade-notes journaling UI removed in favor of Daily Journal flow */}
     </main>
   );
 }
