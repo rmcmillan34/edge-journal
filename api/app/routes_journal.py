@@ -259,7 +259,7 @@ async def upload_journal_attachment(
     next_order = (current_max.sort_order if current_max else 0) + 1
 
     a = Attachment(
-        trade_id=0,  # unused for journal
+        trade_id=None,  # unused for journal
         journal_id=journal_id,
         user_id=None,
         filename=name,
