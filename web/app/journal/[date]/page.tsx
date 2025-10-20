@@ -28,6 +28,11 @@ export default function JournalPage({ params }:{ params: { date: string } }){
 
   useEffect(()=>{ try{ setToken(localStorage.getItem("ej_token") || ""); }catch{} }, []);
   useEffect(()=>{ if (token){ reload(); loadTrades(); loadTemplates(); } }, [token, d]);
+  // Esc exits reorder mode
+  useEffect(()=>{
+    function onKey(e: KeyboardEvent){ if (e.key === 'Escape' && reorderMode){ e.preventDefault(); setReorderMode(false); } }
+    window.addEventListener('keydown', onKey); return ()=> window.removeEventListener('keydown', onKey);
+  }, [reorderMode]);
 
   // Cmd/Ctrl+S to save journal
   useEffect(()=>{
@@ -82,8 +87,10 @@ export default function JournalPage({ params }:{ params: { date: string } }){
     const lines = (notes||'').split(/\r?\n/);
     const sections: any[] = [];
     let current: { heading: string; placeholder?: string } | null = null;
+    let inCode = false;
     for (const ln of lines){
-      const m = ln.match(/^#{2,3}\s+(.+)/);
+      if (/^```/.test(ln)) { inCode = !inCode; }
+      const m = !inCode ? ln.match(/^#{2,}\s+(.+)/) : null;
       if (m){
         if (current){ sections.push({ heading: current.heading, default_included:true, placeholder:(current.placeholder||'').trim() }); }
         current = { heading: m[1].trim(), placeholder: '' };

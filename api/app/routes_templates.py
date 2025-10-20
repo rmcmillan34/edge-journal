@@ -33,10 +33,16 @@ def list_templates(db: Session = Depends(get_db), current = Depends(get_current_
 def create_template(body: TemplateCreate, db: Session = Depends(get_db), current = Depends(get_current_user)):
     if body.target not in ("trade", "daily"):
         raise HTTPException(400, detail="target must be 'trade' or 'daily'")
+    # basic validation
+    sections = [s for s in body.sections if (s.heading or '').strip()]
+    if not body.name or not body.name.strip():
+        raise HTTPException(400, detail="Template name is required")
+    if not sections:
+        raise HTTPException(400, detail="At least one section with a non-empty heading is required")
     exists = db.query(NoteTemplate).filter(NoteTemplate.user_id == current.id, NoteTemplate.name == body.name, NoteTemplate.target == body.target).first()
     if exists:
         raise HTTPException(409, detail="Template with this name already exists")
-    t = NoteTemplate(user_id=current.id, name=body.name, target=body.target, sections_json=json.dumps([s.model_dump() for s in body.sections]))
+    t = NoteTemplate(user_id=current.id, name=body.name.strip(), target=body.target, sections_json=json.dumps([s.model_dump() for s in sections]))
     db.add(t); db.commit(); db.refresh(t)
     return _to_out(t)
 
@@ -47,9 +53,14 @@ def update_template(tid: int, body: TemplateUpdate, db: Session = Depends(get_db
     if not t:
         raise HTTPException(404, detail="Template not found")
     if body.name is not None:
-        t.name = body.name
+        if not body.name.strip():
+            raise HTTPException(400, detail="Template name cannot be empty")
+        t.name = body.name.strip()
     if body.sections is not None:
-        t.sections_json = json.dumps([s.model_dump() for s in body.sections])
+        sections = [s for s in body.sections if (s.heading or '').strip()]
+        if not sections:
+            raise HTTPException(400, detail="At least one section with a non-empty heading is required")
+        t.sections_json = json.dumps([s.model_dump() for s in sections])
     db.commit(); db.refresh(t)
     return _to_out(t)
 
@@ -61,4 +72,3 @@ def delete_template(tid: int, db: Session = Depends(get_db), current = Depends(g
         raise HTTPException(404, detail="Template not found")
     db.delete(t); db.commit()
     return {"deleted": tid}
-

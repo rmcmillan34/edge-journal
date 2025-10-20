@@ -48,6 +48,7 @@ def list_dates(
     current = Depends(get_current_user),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    with_counts: bool = Query(False, description="Return attachment counts per day"),
 ):
     q = db.query(DailyJournal.date).filter(DailyJournal.user_id == current.id)
     if start:
@@ -55,7 +56,23 @@ def list_dates(
     if end:
         q = q.filter(DailyJournal.date <= _parse_date(end))
     rows = q.order_by(DailyJournal.date.asc()).all()
-    return [r[0].strftime("%Y-%m-%d") for r in rows]
+    dates = [r[0].strftime("%Y-%m-%d") for r in rows]
+    if not with_counts:
+        return dates
+    # counts of attachments per day
+    from sqlalchemy import func
+    cq = (
+        db.query(DailyJournal.date, func.count(Attachment.id))
+        .outerjoin(Attachment, Attachment.journal_id == DailyJournal.id)
+        .filter(DailyJournal.user_id == current.id)
+    )
+    if start:
+        cq = cq.filter(DailyJournal.date >= _parse_date(start))
+    if end:
+        cq = cq.filter(DailyJournal.date <= _parse_date(end))
+    cq = cq.group_by(DailyJournal.date)
+    counts = {d.strftime("%Y-%m-%d"): c for d, c in cq.all()}
+    return [{"date": d, "attachment_count": int(counts.get(d, 0))} for d in dates]
 
 
 @router.get("/{d}", response_model=DailyJournalOut)

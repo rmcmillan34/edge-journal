@@ -39,6 +39,7 @@ export default function Dashboard(){
   const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>(()=>{
     try{ return (localStorage.getItem('dash_week_start') as any) || 'Mon'; }catch{ return 'Mon'; }
   });
+  const [hideWeekends, setHideWeekends] = useState<boolean>(()=>{ try{ return localStorage.getItem('dash_hide_weekends') === '1'; }catch{ return false; } });
 
   useEffect(() => { try {
     // hydrate client-only state to avoid hydration mismatches
@@ -124,7 +125,7 @@ export default function Dashboard(){
         if (ra.ok) setAllData(ra.json);
       }catch{}
       try{
-        const rj = await fetchJson(`${API_BASE}/journal/dates?start=${fmtYmd(start)}&end=${fmtYmd(end)}`, 2, 300);
+        const rj = await fetchJson(`${API_BASE}/journal/dates?start=${fmtYmd(start)}&end=${fmtYmd(end)}&with_counts=1`, 2, 300);
         if (rj.ok) setJournalDates(Array.isArray(rj.json) ? rj.json : []);
       }catch{}
     }catch(e:any){ setError(e.message || 'Failed to load metrics'); }
@@ -187,6 +188,9 @@ export default function Dashboard(){
             <option value="Sun">Sun</option>
           </select>
         </div>
+        <label style={{display:'inline-flex',alignItems:'center', gap:6}}>
+          <input type="checkbox" checked={hideWeekends} onChange={e=>{ setHideWeekends(e.target.checked); try{ localStorage.setItem('dash_hide_weekends', e.target.checked ? '1' : '0'); }catch{} }} /> Hide weekends
+        </label>
         <button type="button" onClick={()=>{
           setSymbol(""); setAccount(""); setDisplayTz("");
           try{
@@ -227,7 +231,7 @@ export default function Dashboard(){
       )}
 
       <h2 style={{marginTop:16}}>Calendar (Current Month)</h2>
-      <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(data?.equity_curve||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} loading={loading} journalDates={journalDates} />
+      <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(data?.equity_curve||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} loading={loading} journalDates={journalDates} hideWeekends={hideWeekends} weekStart={weekStart} />
     </main>
   );
 }
@@ -268,29 +272,32 @@ function ChartSVG({ W, H, P, d, points }:{ W:number; H:number; P:number; d:strin
   );
 }
 
-function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates }:{ monthAnchor: Date; setMonthAnchor:(d:Date)=>void; daily: {date:string; pnl:number}[]; loading:boolean; journalDates?: string[] }){
+type JournalDateInfo = string | { date: string; attachment_count?: number };
+function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, hideWeekends, weekStart }:{ monthAnchor: Date; setMonthAnchor:(d:Date)=>void; daily: {date:string; pnl:number}[]; loading:boolean; journalDates?: JournalDateInfo[]; hideWeekends?: boolean; weekStart?: 'Mon'|'Sun' }){
   const monthName = monthAnchor.toLocaleString(undefined, { month:'long', year:'numeric' });
   const first = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
   const last = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0);
   const daysInMonth = last.getDate();
-  // Weekday index, configurable: default Monday
-  const savedStart = (typeof window !== 'undefined' ? (localStorage.getItem('dash_week_start') || 'Mon') : 'Mon');
-  const weekStartIdx = savedStart === 'Sun' ? 0 : 1;
-  // Transform Sunday=0..Saturday=6 into 0..6 starting from configured week start
-  const startWeekday = (first.getDay() - weekStartIdx + 7) % 7;
-  const totalCells = Math.ceil((startWeekday + daysInMonth) / 7) * 7;
+  const startIdx = (weekStart === 'Sun') ? 0 : 1;
+  const weekOrder = (startIdx===1 ? [1,2,3,4,5,6,0] : [0,1,2,3,4,5,6]);
+  const visibleDays = weekOrder.filter(d => hideWeekends ? (d !== 0 && d !== 6) : true);
+  const cols = visibleDays.length; // 5 or 7
+  const headers = (startIdx===1?["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]).filter((_,i)=> visibleDays.includes(weekOrder[i]));
+  const firstIdx = visibleDays.indexOf(first.getDay());
   const dayMap = new Map(daily.map(d=>[d.date, d.pnl]));
+  const jdMap = new Map<string, number>();
+  (journalDates||[]).forEach((x:any)=>{ if (typeof x === 'string') jdMap.set(x, 1); else if (x && x.date) jdMap.set(x.date, Number(x.attachment_count||0)); });
 
   const cells: JSX.Element[] = [];
-  for (let i=0;i<totalCells;i++){
-    const dayNum = i - startWeekday + 1;
-    if (i < startWeekday || dayNum > daysInMonth){
-      cells.push(<div key={i} className="cal-cell empty" style={{border:'1px solid #eee', minHeight:80, background:'var(--cal-day-bg)', color:'var(--cal-day-color)', ['--cal-day-bg' as any]:'#fafafa', ['--cal-day-color' as any]:'#334155'}} />);
-    } else {
+  for (let k=0; k<(firstIdx<0?0:firstIdx); k++){
+    cells.push(<div key={`e-${k}`} className="cal-cell empty" style={{border:'1px solid #eee', minHeight:80, background:'var(--cal-day-bg)', color:'var(--cal-day-color)', ['--cal-day-bg' as any]:'#fafafa', ['--cal-day-color' as any]:'#334155'}} />);
+  }
+  for (let dayNum=1; dayNum<=daysInMonth; dayNum++){
       const d = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), dayNum);
+      if (!visibleDays.includes(d.getDay())) continue;
       const ymd = fmtYmd(d);
       const pn = dayMap.get(ymd);
-      const hasJournal = (journalDates || []).includes(ymd);
+      const attCount = jdMap.get(ymd) || 0;
       const baseVars:any = { ['--cal-day-bg']:'#f8fafc', ['--cal-badge-bg']:'#e2e8f0', ['--cal-day-color']:'#334155' };
       const cls = ['cal-cell','day'];
       if (pn != null){
@@ -298,14 +305,14 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates }:
         else if (pn < 0){ baseVars['--cal-day-bg'] = '#fee2e2'; baseVars['--cal-badge-bg'] = '#fecaca'; baseVars['--cal-day-color'] = '#991b1b'; cls.push('neg'); }
       }
       cells.push(
-        <div key={i} className={cls.join(' ')} style={{border:'1px solid #e5e7eb', minHeight:92, padding:8, background:'var(--cal-day-bg)', color:'var(--cal-day-color)', cursor:'pointer', ...baseVars}} onClick={()=>{
+        <div key={ymd} className={cls.join(' ')} style={{border:'1px solid #e5e7eb', minHeight:92, padding:8, background:'var(--cal-day-bg)', color:'var(--cal-day-color)', cursor:'pointer', ...baseVars}} onClick={()=>{
           window.location.href = `/trades?start=${ymd}&end=${ymd}`;
         }}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
             <div style={{fontSize:12, opacity:0.7, display:'flex', alignItems:'center', gap:6}}>
               <span>{d.toLocaleDateString(undefined,{ day:'2-digit'})}</span>
               <a href={`/journal/${ymd}`} title="Open Journal" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}>📝</a>
-              {hasJournal && <span title="Journal exists" style={{display:'inline-block', width:8, height:8, borderRadius:9999, background:'#0ea5e9'}} />}
+              {attCount > 0 && <span title={`${attCount} attachment(s)`} style={{display:'inline-block', padding:'0 6px', borderRadius:9999, background:'#0ea5e9', color:'#fff', fontSize:10}}>×{attCount}</span>}
             </div>
             {pn != null && (
               <span className="pnl-badge" style={{fontSize:12, background:'var(--cal-badge-bg)', color:'var(--cal-day-color)', padding:'2px 6px', borderRadius:999}}>{pn>0?'+':''}{pn.toFixed(2)}</span>
@@ -313,7 +320,6 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates }:
           </div>
         </div>
       );
-    }
   }
 
   return (
@@ -326,8 +332,8 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates }:
           <button onClick={()=> setMonthAnchor(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 1))}>&gt;</button>
         </div>
       </div>
-      <div className="cal-grid" style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:0, border:'1px solid #e5e7eb'}}>
-        {((weekStartIdx===1)?["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]).map((w,i)=>(
+      <div className="cal-grid" style={{display:'grid', gridTemplateColumns:`repeat(${cols}, 1fr)`, gap:0, border:'1px solid #e5e7eb'}}>
+        {headers.map((w,i)=>(
           <div key={i} className="cal-weekhead" style={{borderRight:'1px solid #e5e7eb', padding:6, background:'#f8fafc', fontSize:12, textAlign:'center'}}>{w}</div>
         ))}
         {cells}

@@ -101,8 +101,10 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
     const lines = (notes||'').split(/\r?\n/);
     const sections: any[] = [];
     let current: { heading: string; placeholder?: string } | null = null;
+    let inCode = false;
     for (const ln of lines){
-      const m = ln.match(/^#{2,3}\s+(.+)/);
+      if (/^```/.test(ln)) { inCode = !inCode; }
+      const m = !inCode ? ln.match(/^#{2,}\s+(.+)/) : null;
       if (m){
         if (current){ sections.push({ heading: current.heading, default_included:true, placeholder:(current.placeholder||'').trim() }); }
         current = { heading: m[1].trim(), placeholder: '' };
