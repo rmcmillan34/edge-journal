@@ -49,7 +49,7 @@ export default function UploadsHistory(){
         </div>
       )}
       <div style={{overflowX:'auto'}}>
-        <table cellPadding={6} style={{width:'100%', borderCollapse:'collapse'}}>
+        <table className="tbl" cellPadding={6} style={{width:'100%', borderCollapse:'collapse'}}>
           <thead>
             <tr className="tbl-head">
               <th>When</th><th>File</th><th>Preset</th><th>TZ</th><th>Inserted</th><th>Updated</th><th>Skipped</th><th>Errors</th><th>Actions</th>

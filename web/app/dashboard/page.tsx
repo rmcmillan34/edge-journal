@@ -298,6 +298,7 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, h
       const ymd = fmtYmd(d);
       const pn = dayMap.get(ymd);
       const attCount = jdMap.get(ymd) || 0;
+      const hasJournal = jdMap.has(ymd);
       const baseVars:any = { ['--cal-day-bg']:'#f8fafc', ['--cal-badge-bg']:'#e2e8f0', ['--cal-day-color']:'#334155' };
       const cls = ['cal-cell','day'];
       if (pn != null){
@@ -312,7 +313,8 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, h
             <div style={{fontSize:12, opacity:0.7, display:'flex', alignItems:'center', gap:6}}>
               <span>{d.toLocaleDateString(undefined,{ day:'2-digit'})}</span>
               <a href={`/journal/${ymd}`} title="Open Journal" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}>📝</a>
-              {attCount > 0 && <span title={`${attCount} attachment(s)`} style={{display:'inline-block', padding:'0 6px', borderRadius:9999, background:'#0ea5e9', color:'#fff', fontSize:10}}>×{attCount}</span>}
+              {hasJournal && <span title="Journal exists" style={{display:'inline-block', width:8, height:8, borderRadius:9999, background:'#0ea5e9'}} />}
+              {attCount > 0 && <span title={`${attCount} attachment(s)`} style={{display:'inline-block', marginLeft:4, padding:'0 6px', borderRadius:9999, background:'#0ea5e9', color:'#fff', fontSize:10}}>×{attCount}</span>}
             </div>
             {pn != null && (
               <span className="pnl-badge" style={{fontSize:12, background:'var(--cal-badge-bg)', color:'var(--cal-day-color)', padding:'2px 6px', borderRadius:999}}>{pn>0?'+':''}{pn.toFixed(2)}</span>

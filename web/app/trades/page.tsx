@@ -492,7 +492,7 @@ function TradesView(){
       )}
       {error && <p style={{color:'crimson'}}>{error}</p>}
       <div style={{overflowX:'auto'}}>
-        <table cellPadding={6} style={{width:'100%', borderCollapse:'collapse'}}>
+        <table className="tbl" cellPadding={6} style={{width:'100%', borderCollapse:'collapse'}}>
           <thead style={{position:'sticky', top:0, zIndex:1}}>
             <tr className="tbl-head">
               <th><input type="checkbox" checked={allChecked} onChange={e=> setSelected(e.target.checked ? items.map(t=>t.id) : [])} /></th>
