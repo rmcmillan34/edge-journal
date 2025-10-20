@@ -18,7 +18,8 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 
 ### Dashboard
 - Go to `/dashboard` for KPIs, equity curve, and calendar.
-- The calendar indicates presence of journal entries and unreviewed trades.
+- The calendar indicates presence of journal entries (blue dot) and attachment counts (×N), and colors days green/red by PnL.
+- Toggle “Hide weekends” to switch between 7‑day and 5‑day calendar views; preference is remembered.
 
 ### Trades
 - Go to `/trades` to view imported or manually created trades.
@@ -49,6 +50,7 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 - Link trades: the page lists trades for the same day; check trades to link and “Save Links”.
 - Journal attachments: same features as trades — upload, metadata, inline edit, multi‑select delete/download, and drag‑reorder.
 - Delete journal: use the button to remove the entry and its attachments.
+ - Keyboard: Esc exits attachment reorder mode.
 
 ### Templates
 - Manage templates at `/templates`.

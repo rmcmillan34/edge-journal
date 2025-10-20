@@ -54,6 +54,7 @@ M4 — Journal + Templates
 - Editor UX: apply templates inserts at cursor; Cmd/Ctrl+S to save notes
 - Daily Journal: upsert by date; link trades for the day; delete entry
 - Attachments: upload images/PDFs; EXIF strip + thumbnails; per‑item metadata; drag‑reorder; batch delete; multi‑select ZIP download; inline metadata edits
+- Calendar: hide‑weekends toggle; blue dot for journal presence; attachment count pill; green/red day coloring
 
 ## Timezones: CSV vs Display
 - CSV timezone is applied at commit to convert timestamps to UTC for storage.
@@ -95,7 +96,7 @@ Attachments (API):
 
 ## Versioning
 - Pre‑1.0 SemVer from `VERSION`. M3 bump → v0.3.0.
- - Current tranche: M4 in progress.
+ - Current tranche: M4 — v0.4.2.
 
 ## Stretch ideas
 - Dashboard month CSV export (date, net PnL, equity) honoring filters/timezone.
