@@ -11,6 +11,8 @@ type Metrics = {
   unreviewed_count?: number;
 };
 
+type CalendarDay = { date: string; trades: number; net_pnl: number; breaches: string[] };
+
 function fmtYmd(d: Date){
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
@@ -36,6 +38,10 @@ export default function Dashboard(){
   const [symbols, setSymbols] = useState<string[]>([]);
   const [accountsList, setAccountsList] = useState<{id:number; name:string}[]>([]);
   const [journalDates, setJournalDates] = useState<string[]>([]);
+  const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
+  const [rulesModalOpen, setRulesModalOpen] = useState<boolean>(false);
+  const [rules, setRules] = useState({ max_losses_row_day: 3, max_losing_days_streak_week: 2, max_losing_weeks_streak_month: 2, alerts_enabled: true });
+  const [acctCaps, setAcctCaps] = useState<{ id:number; name:string; account_max_risk_pct?: number|null }[]>([]);
   const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>(()=>{
     try{ return (localStorage.getItem('dash_week_start') as any) || 'Mon'; }catch{ return 'Mon'; }
   });
@@ -57,6 +63,16 @@ export default function Dashboard(){
     }
   } catch{} }, []);
   useEffect(() => { if (token) load(); }, [token, monthAnchor, symbol, account, displayTz]);
+  useEffect(() => {
+    if (!token) return;
+    // first-run wizard trigger
+    try{
+      const done = localStorage.getItem('ej_rules_setup_done') === '1';
+      if (!done){
+        openRulesWizard();
+      }
+    }catch{}
+  }, [token]);
   useEffect(() => { // load symbols (optionally filtered by account)
     async function loadSymbols(){
       if (!token) return;
@@ -128,8 +144,36 @@ export default function Dashboard(){
         const rj = await fetchJson(`${API_BASE}/journal/dates?start=${fmtYmd(start)}&end=${fmtYmd(end)}&with_counts=1`, 2, 300);
         if (rj.ok) setJournalDates(Array.isArray(rj.json) ? rj.json : []);
       }catch{}
+      try{
+        const rc = await fetchJson(`${API_BASE}/metrics/calendar?start=${fmtYmd(start)}&end=${fmtYmd(end)}${displayTz?`&tz=${encodeURIComponent(displayTz)}`:''}`, 2, 300);
+        if (rc.ok && rc.json && Array.isArray(rc.json.days)) setCalendarDays(rc.json.days);
+      }catch{}
     }catch(e:any){ setError(e.message || 'Failed to load metrics'); }
     finally{ setLoading(false); }
+  }
+
+  async function openRulesWizard(){
+    try{
+      // load current rules and accounts
+      const [rRules, rAccts] = await Promise.all([
+        fetch(`${API_BASE}/settings/trading-rules`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
+        fetch(`${API_BASE}/accounts`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined }),
+      ]);
+      if (rRules.ok){ const j = await rRules.json(); setRules(j); }
+      if (rAccts.ok){ const j = await rAccts.json(); setAcctCaps((j||[]).map((a:any)=>({ id:a.id, name:a.name, account_max_risk_pct:a.account_max_risk_pct })) ); }
+      setRulesModalOpen(true);
+    }catch{}
+  }
+
+  async function saveRulesWizard(){
+    try{
+      await fetch(`${API_BASE}/settings/trading-rules`, { method:'PUT', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(rules) });
+      for (const a of acctCaps){
+        await fetch(`${API_BASE}/accounts/${a.id}`, { method:'PATCH', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify({ account_max_risk_pct: a.account_max_risk_pct ?? null }) });
+      }
+      try{ localStorage.setItem('ej_rules_setup_done','1'); }catch{}
+      setRulesModalOpen(false);
+    }catch{}
   }
 
   const chart = useMemo(() => {
@@ -152,6 +196,50 @@ export default function Dashboard(){
   return (
     <main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
       <h1>Dashboard</h1>
+      {rulesModalOpen && (
+        <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50}}>
+          <div style={{background:'#fff', borderRadius:8, padding:16, width:600, maxWidth:'90%'}}>
+            <h2 style={{marginTop:0}}>Configure Risk & Rules</h2>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
+              <div>
+                <div style={{fontWeight:600, marginBottom:6}}>Trading Rules</div>
+                <label style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, alignItems:'center'}}>
+                  <span>Max losses in a row (day)</span>
+                  <input type="number" min={1} value={rules.max_losses_row_day} onChange={e=>setRules(r=>({...r, max_losses_row_day: parseInt(e.target.value||'0',10)||0}))} />
+                </label>
+                <label style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, alignItems:'center'}}>
+                  <span>Max losing days streak (week)</span>
+                  <input type="number" min={1} value={rules.max_losing_days_streak_week} onChange={e=>setRules(r=>({...r, max_losing_days_streak_week: parseInt(e.target.value||'0',10)||0}))} />
+                </label>
+                <label style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, alignItems:'center'}}>
+                  <span>Max losing weeks streak (month)</span>
+                  <input type="number" min={1} value={rules.max_losing_weeks_streak_month} onChange={e=>setRules(r=>({...r, max_losing_weeks_streak_month: parseInt(e.target.value||'0',10)||0}))} />
+                </label>
+                <label style={{display:'flex', alignItems:'center', gap:8, marginTop:8}}>
+                  <input type="checkbox" checked={rules.alerts_enabled} onChange={e=>setRules(r=>({...r, alerts_enabled: e.target.checked}))} /> Enable alerts
+                </label>
+              </div>
+              <div>
+                <div style={{fontWeight:600, marginBottom:6}}>Account Max Risk %</div>
+                {!acctCaps.length ? <div style={{color:'#64748b'}}>No accounts yet. You can set caps later.</div> : (
+                  <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                    {acctCaps.map((a, idx) => (
+                      <label key={a.id} style={{display:'grid', gridTemplateColumns:'1fr 120px', gap:8, alignItems:'center'}}>
+                        <span>{a.name}</span>
+                        <input type="number" step={0.05} value={(a.account_max_risk_pct ?? '') as any} onChange={e=> setAcctCaps(prev => prev.map((x,i)=> i===idx ? { ...x, account_max_risk_pct: e.target.value===''? null : parseFloat(e.target.value) } : x ))} />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{display:'flex', justifyContent:'flex-end', gap:8, marginTop:12}}>
+              <button onClick={()=>setRulesModalOpen(false)}>Close</button>
+              <button onClick={saveRulesWizard}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
       {mounted && !token && (
         <div className="notice" style={{margin:'8px 0', padding:'8px 12px', border:'1px solid #fde68a', background:'#fffbeb', color:'#92400e', borderRadius:8}}>
           Please <a href="/auth/login">sign in</a> to view metrics.
@@ -231,7 +319,7 @@ export default function Dashboard(){
       )}
 
       <h2 style={{marginTop:16}}>Calendar (Current Month)</h2>
-      <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(data?.equity_curve||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} loading={loading} journalDates={journalDates} hideWeekends={hideWeekends} weekStart={weekStart} />
+      <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(calendarDays||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} breachesMap={Object.fromEntries((calendarDays||[]).map(d=>[d.date, d.breaches||[]]))} loading={loading} journalDates={journalDates} hideWeekends={hideWeekends} weekStart={weekStart} />
     </main>
   );
 }
@@ -273,8 +361,15 @@ function ChartSVG({ W, H, P, d, points }:{ W:number; H:number; P:number; d:strin
 }
 
 type JournalDateInfo = string | { date: string; attachment_count?: number };
-function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, hideWeekends, weekStart }:{ monthAnchor: Date; setMonthAnchor:(d:Date)=>void; daily: {date:string; pnl:number}[]; loading:boolean; journalDates?: JournalDateInfo[]; hideWeekends?: boolean; weekStart?: 'Mon'|'Sun' }){
+function Calendar({ monthAnchor, setMonthAnchor, daily, breachesMap, loading, journalDates, hideWeekends, weekStart }:{ monthAnchor: Date; setMonthAnchor:(d:Date)=>void; daily: {date:string; pnl:number}[]; breachesMap?: Record<string,string[]>; loading:boolean; journalDates?: JournalDateInfo[]; hideWeekends?: boolean; weekStart?: 'Mon'|'Sun' }){
   const monthName = monthAnchor.toLocaleString(undefined, { month:'long', year:'numeric' });
+  const [legendOpen, setLegendOpen] = useState(false);
+  const breachLabels: Record<string,string> = {
+    loss_streak_day: 'Loss streak exceeded (day)',
+    losing_days_week: 'Losing day streak exceeded (week)',
+    losing_weeks_month: 'Losing week streak exceeded (month)',
+    risk_cap_exceeded: 'Risk cap exceeded (min of template/grade/account caps)'
+  };
   const first = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1);
   const last = new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0);
   const daysInMonth = last.getDate();
@@ -305,6 +400,7 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, h
         if (pn > 0){ baseVars['--cal-day-bg'] = '#dcfce7'; baseVars['--cal-badge-bg'] = '#bbf7d0'; baseVars['--cal-day-color'] = '#166534'; cls.push('pos'); }
         else if (pn < 0){ baseVars['--cal-day-bg'] = '#fee2e2'; baseVars['--cal-badge-bg'] = '#fecaca'; baseVars['--cal-day-color'] = '#991b1b'; cls.push('neg'); }
       }
+      const breaches = (breachesMap && breachesMap[ymd]) || [];
       cells.push(
         <div key={ymd} className={cls.join(' ')} style={{border:'1px solid #e5e7eb', minHeight:92, padding:8, background:'var(--cal-day-bg)', color:'var(--cal-day-color)', cursor:'pointer', ...baseVars}} onClick={()=>{
           window.location.href = `/trades?start=${ymd}&end=${ymd}`;
@@ -315,6 +411,14 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, h
               <a href={`/journal/${ymd}`} title="Open Journal" style={{textDecoration:'none'}} onClick={e=>e.stopPropagation()}>📝</a>
               {hasJournal && <span title="Journal exists" style={{display:'inline-block', width:8, height:8, borderRadius:9999, background:'#0ea5e9'}} />}
               {attCount > 0 && <span title={`${attCount} attachment(s)`} style={{display:'inline-block', marginLeft:4, padding:'0 6px', borderRadius:9999, background:'#0ea5e9', color:'#fff', fontSize:10}}>×{attCount}</span>}
+              {!!breaches.length && (
+                <span style={{display:'inline-flex', gap:4, marginLeft:6}}>
+                  {breaches.includes('loss_streak_day') && <span title={breachLabels.loss_streak_day} aria-label={breachLabels.loss_streak_day}>⚠️</span>}
+                  {breaches.includes('losing_days_week') && <span title={breachLabels.losing_days_week} aria-label={breachLabels.losing_days_week}>🟨</span>}
+                  {breaches.includes('losing_weeks_month') && <span title={breachLabels.losing_weeks_month} aria-label={breachLabels.losing_weeks_month}>🟧</span>}
+                  {breaches.includes('risk_cap_exceeded') && <span title={breachLabels.risk_cap_exceeded} aria-label={breachLabels.risk_cap_exceeded}>⛔</span>}
+                </span>
+              )}
             </div>
             {pn != null && (
               <span className="pnl-badge" style={{fontSize:12, background:'var(--cal-badge-bg)', color:'var(--cal-day-color)', padding:'2px 6px', borderRadius:999}}>{pn>0?'+':''}{pn.toFixed(2)}</span>
@@ -328,12 +432,28 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, loading, journalDates, h
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', margin:'8px 0'}}>
         <div style={{fontWeight:600}}>{monthName}</div>
-        <div style={{display:'flex', gap:8}}>
+        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+          <button onClick={()=> setLegendOpen(v=>!v)} title="Show breach legend">Legend</button>
           <button onClick={()=> setMonthAnchor(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()-1, 1))}>&lt;</button>
           <button onClick={()=> setMonthAnchor(new Date())}>Today</button>
           <button onClick={()=> setMonthAnchor(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 1))}>&gt;</button>
         </div>
       </div>
+      {legendOpen && (
+        <div style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8, marginBottom:8, background:'#f8fafc'}}>
+          <div style={{fontWeight:600, marginBottom:6}}>Breach Legend</div>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 4fr', gap:8, alignItems:'center'}}>
+            <div><span title={breachLabels.loss_streak_day}>⚠️</span></div>
+            <div>{breachLabels.loss_streak_day}</div>
+            <div><span title={breachLabels.losing_days_week}>🟨</span></div>
+            <div>{breachLabels.losing_days_week}</div>
+            <div><span title={breachLabels.losing_weeks_month}>🟧</span></div>
+            <div>{breachLabels.losing_weeks_month}</div>
+            <div><span title={breachLabels.risk_cap_exceeded}>⛔</span></div>
+            <div>{breachLabels.risk_cap_exceeded}</div>
+          </div>
+        </div>
+      )}
       <div className="cal-grid" style={{display:'grid', gridTemplateColumns:`repeat(${cols}, 1fr)`, gap:0, border:'1px solid #e5e7eb'}}>
         {headers.map((w,i)=>(
           <div key={i} className="cal-weekhead" style={{borderRight:'1px solid #e5e7eb', padding:6, background:'#f8fafc', fontSize:12, textAlign:'center'}}>{w}</div>

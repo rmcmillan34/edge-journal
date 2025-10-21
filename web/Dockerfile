@@ -7,6 +7,9 @@ WORKDIR /app
 ARG VERSION="0.0.0-dev"
 ENV NEXT_PUBLIC_APP_VERSION=${VERSION}
 
+# Workaround: force Next.js to use SWC WASM in Alpine to avoid native parser issues
+ENV NEXT_DISABLE_SWC_NATIVE=true
+
 # If you have a base URL for the API at build time, you can also set:
 # ENV NEXT_PUBLIC_API_BASE=/api
 

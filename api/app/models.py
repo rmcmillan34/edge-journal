@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Date, func, Boolean, ForeignKey, UniqueConstraint, Float, Text
+from sqlalchemy import Numeric
 from sqlalchemy.orm import relationship
 from .db import Base
 
@@ -70,6 +71,8 @@ class Account(Base):
     broker_label = Column(String(120), nullable=True)
     base_ccy = Column(String(12), nullable=True)
     status = Column(String(16), nullable=False, default="active")  # active/closed
+    # M5: optional per-account risk cap (% of balance or configured basis)
+    account_max_risk_pct = Column(Float, nullable=True)
 
 
 class Instrument(Base):
@@ -207,3 +210,74 @@ class MappingPreset(Base):
     mapping_json = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     __table_args__ = (UniqueConstraint("user_id", "name", name="uq_mapping_presets_user_name"),)
+
+
+# --- Playbooks (M5) ---
+class PlaybookTemplate(Base):
+    __tablename__ = "playbook_templates"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    purpose = Column(String(16), nullable=False)  # 'pre' | 'in' | 'post' | 'generic'
+    strategy_bindings_json = Column(Text, nullable=True)
+    schema_json = Column(Text, nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
+    grade_scale = Column(String(16), nullable=False, default='A_B_C_D')
+    grade_thresholds_json = Column(Text, nullable=True)
+    risk_schedule_json = Column(Text, nullable=True)
+    template_max_risk_pct = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    __table_args__ = (UniqueConstraint("user_id", "name", "version", name="uq_playbook_templates_user_name_version"),)
+
+
+class PlaybookResponse(Base):
+    __tablename__ = "playbook_responses"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id", ondelete="CASCADE"), nullable=True, index=True)
+    journal_id = Column(Integer, ForeignKey("daily_journal.id", ondelete="CASCADE"), nullable=True, index=True)
+    template_id = Column(Integer, ForeignKey("playbook_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_version = Column(Integer, nullable=False)
+    entry_type = Column(String(32), nullable=False)  # 'trade_playbook' | 'instrument_checklist'
+    values_json = Column(Text, nullable=False)
+    comments_json = Column(Text, nullable=True)
+    computed_grade = Column(String(1), nullable=True)
+    compliance_score = Column(Float, nullable=True)
+    intended_risk_pct = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PlaybookEvidenceLink(Base):
+    __tablename__ = "playbook_evidence_links"
+    id = Column(Integer, primary_key=True)
+    response_id = Column(Integer, ForeignKey("playbook_responses.id", ondelete="CASCADE"), nullable=False, index=True)
+    field_key = Column(String(128), nullable=False)
+    source_kind = Column(String(16), nullable=False)  # 'trade' | 'journal' | 'url'
+    source_id = Column(Integer, nullable=True)
+    url = Column(Text, nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class UserTradingRules(Base):
+    __tablename__ = "user_trading_rules"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    max_losses_row_day = Column(Integer, nullable=False, default=3)
+    max_losing_days_streak_week = Column(Integer, nullable=False, default=2)
+    max_losing_weeks_streak_month = Column(Integer, nullable=False, default=2)
+    alerts_enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class BreachEvent(Base):
+    __tablename__ = "breach_events"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
+    scope = Column(String(16), nullable=False)  # 'day'|'week'|'month'|'trade'
+    date_or_week = Column(String(16), nullable=False)
+    rule_key = Column(String(48), nullable=False)
+    details_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -12,15 +12,29 @@ from .routes_trades import router as trades_router
 from .routes_metrics import router as metrics_router
 from .routes_journal import router as journal_router
 from .routes_templates import router as templates_router
+from .routes_playbooks import router as playbooks_router
+from .routes_playbook_responses import router as playbook_responses_router
+from .routes_settings import router as settings_router
 from .deps import get_current_user
 from .models import User
 from .version import get_version
 
 app = FastAPI(title="Edge-Journal API", version=get_version())
 
+# CORS: avoid wildcard when credentials/Authorization are used
+_cors = os.environ.get("CORS_ORIGINS", "").strip()
+if _cors:
+    allow_origins = [o.strip() for o in _cors.split(",") if o.strip()]
+else:
+    # Sensible dev defaults
+    allow_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +48,9 @@ app.include_router(trades_router)
 app.include_router(metrics_router)
 app.include_router(journal_router)
 app.include_router(templates_router)
+app.include_router(playbooks_router)
+app.include_router(playbook_responses_router)
+app.include_router(settings_router)
 
 @app.get("/health")
 def health():

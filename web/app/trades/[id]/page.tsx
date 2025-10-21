@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 type Attachment = {
   id: number;
@@ -27,7 +27,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
   const [token, setToken] = useState<string>("");
   const [data, setData] = useState<TradeDetail | null>(null);
-  const [tab, setTab] = useState<'overview'|'notes'|'attachments'>("overview");
+  const [tab, setTab] = useState<'overview'|'notes'|'attachments'|'playbook'>("overview");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState("");
@@ -43,7 +43,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
   const [editMap, setEditMap] = useState<Record<number, {timeframe:string; state:string; view:string; caption:string; reviewed:boolean} | null>>({});
 
   useEffect(()=>{ try { setToken(localStorage.getItem("ej_token") || ""); } catch{} },[]);
-  useEffect(()=>{ if (token){ reload(); loadTemplates(); } }, [token]);
+  useEffect(()=>{ if (token){ reload(); loadTemplates(); loadPlaybookTemplates(); loadPlaybookResponses(); } }, [token]);
 
   // Cmd/Ctrl+S to save notes; Esc to exit reorder mode
   useEffect(()=>{
@@ -66,6 +66,199 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       const r = await fetch(`${API_BASE}/templates?target=trade`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
       if (r.ok){ const j = await r.json(); setTpls(Array.isArray(j)?j:[]); }
     }catch{}
+  }
+
+  // --- Playbooks (M5) ---
+  const [pbTemplates, setPbTemplates] = useState<any[]>([]);
+  const [pbTplId, setPbTplId] = useState<number | "">("");
+  const [pbValues, setPbValues] = useState<Record<string, any>>({});
+  const [pbComments, setPbComments] = useState<Record<string, string>>({});
+  const [pbEval, setPbEval] = useState<{ compliance_score:number; grade:string; risk_cap_pct:number; cap_breakdown:any }|null>(null);
+  const [pbSaving, setPbSaving] = useState(false);
+  const [pbResponses, setPbResponses] = useState<any[]>([]);
+  const [pbCurrentRespId, setPbCurrentRespId] = useState<number | null>(null);
+  const [pbEvidence, setPbEvidence] = useState<any[]>([]);
+  const [pbEvidenceField, setPbEvidenceField] = useState<string>("");
+  const [pbEvidenceUrl, setPbEvidenceUrl] = useState<string>("");
+  const [pbEvidenceNote, setPbEvidenceNote] = useState<string>("");
+  const [pbJournalDate, setPbJournalDate] = useState<string>("");
+  const [pbJournalAtts, setPbJournalAtts] = useState<any[]>([]);
+  const [pbCopySelectEvidenceId, setPbCopySelectEvidenceId] = useState<number | "">("");
+  const [pbCopyFields, setPbCopyFields] = useState<Record<string, boolean>>({});
+  const [expIncludePb, setExpIncludePb] = useState(true);
+  const [expEvidence, setExpEvidence] = useState<'none'|'links'|'thumbs'|'full'>('links');
+  
+  async function exportMarkdown(){
+    try{
+      const qs = new URLSearchParams();
+      if (!expIncludePb) qs.set('include_playbook','false');
+      if (expEvidence !== 'links') qs.set('evidence', expEvidence);
+      const r = await fetch(`${API_BASE}/trades/${params.id}/export.md?${qs.toString()}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      const txt = await r.text();
+      if (!r.ok) throw new Error(`Export failed: ${r.status}`);
+      const blob = new Blob([txt], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `trade_${params.id}.md`; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function exportPdf(){
+    try{
+      const qs = new URLSearchParams();
+      if (!expIncludePb) qs.set('include_playbook','false');
+      if (expEvidence !== 'links') qs.set('evidence', expEvidence);
+      const r = await fetch(`${API_BASE}/trades/${params.id}/export.pdf?${qs.toString()}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.status === 501){
+        const j = await r.json().catch(()=>({detail:'Not implemented'}));
+        setError(j.detail || 'PDF not implemented');
+        return;
+      }
+      const blob = await r.blob();
+      if (!r.ok) throw new Error(`Export failed: ${r.status}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `trade_${params.id}.pdf`; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function loadPlaybookTemplates(){
+    try{
+      const r = await fetch(`${API_BASE}/playbooks/templates?purpose=post`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.ok){ const j = await r.json(); setPbTemplates(Array.isArray(j)?j:[]); }
+    }catch{}
+  }
+
+  async function loadPlaybookResponses(){
+    try{
+      const r = await fetch(`${API_BASE}/trades/${params.id}/playbook-responses`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.ok){ const j = await r.json(); setPbResponses(Array.isArray(j)?j:[]); const latest = (Array.isArray(j) && j.length) ? j[0] : null; setPbCurrentRespId(latest ? latest.id : null); if (latest) await loadEvidence(latest.id); }
+    }catch{}
+  }
+
+  async function loadEvidence(respId:number){
+    try{
+      const r = await fetch(`${API_BASE}/playbook-responses/${respId}/evidence`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.ok){ const j = await r.json(); setPbEvidence(Array.isArray(j)?j:[]); }
+    }catch{}
+  }
+
+  async function addEvidenceUrl(){
+    if (!pbCurrentRespId || !pbEvidenceField || !pbEvidenceUrl){ setError('Select field and enter URL'); return; }
+    try{
+      const body = { field_key: pbEvidenceField, source_kind:'url', url: pbEvidenceUrl, note: pbEvidenceNote };
+      const r = await fetch(`${API_BASE}/playbook-responses/${pbCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Add failed: ${r.status}`);
+      setPbEvidenceField(""); setPbEvidenceUrl(""); setPbEvidenceNote("");
+      await loadEvidence(pbCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function addEvidenceTradeAttachment(attId:number){
+    if (!pbCurrentRespId || !pbEvidenceField){ setError('Select field'); return; }
+    try{
+      const body = { field_key: pbEvidenceField, source_kind:'trade', source_id: attId };
+      const r = await fetch(`${API_BASE}/playbook-responses/${pbCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Add failed: ${r.status}`); }
+      await loadEvidence(pbCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function loadJournalAttachments(){
+    if (!pbJournalDate){ setError('Enter journal date'); return; }
+    try{
+      const r = await fetch(`${API_BASE}/journal/${pbJournalDate}`, { headers: token ? { Authorization:`Bearer ${token}` } : undefined });
+      if (r.status === 404){ setPbJournalAtts([]); return; }
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Failed: ${r.status}`);
+      const jid = j.id;
+      const ra = await fetch(`${API_BASE}/journal/${jid}/attachments`, { headers: token ? { Authorization:`Bearer ${token}` } : undefined });
+      const ja = await ra.json(); if (!ra.ok) throw new Error(ja.detail || `Failed: ${ra.status}`);
+      setPbJournalAtts(Array.isArray(ja)?ja:[]);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function addEvidenceJournalAttachment(att:any){
+    if (!pbCurrentRespId || !pbEvidenceField){ setError('Select field'); return; }
+    try{
+      const body = { field_key: pbEvidenceField, source_kind:'journal', source_id: att.id };
+      const r = await fetch(`${API_BASE}/playbook-responses/${pbCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Add failed: ${r.status}`); }
+      await loadEvidence(pbCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function removeEvidence(eid:number){
+    if (!pbCurrentRespId) return;
+    try{
+      const r = await fetch(`${API_BASE}/playbook-responses/${pbCurrentRespId}/evidence/${eid}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` }});
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
+      await loadEvidence(pbCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function copyEvidenceToFields(ev:any){
+    if (!pbCurrentRespId) return;
+    const tpl = pbTemplates.find((t:any)=> t.id===pbTplId);
+    const keys = (tpl?.schema||[]).map((f:any)=> f.key).filter((k:string)=> pbCopyFields[k]);
+    for (const key of keys){
+      try{
+        const body:any = { field_key: key, source_kind: ev.source_kind };
+        if (ev.source_kind === 'url') body.url = ev.url;
+        if (ev.source_kind === 'trade' || ev.source_kind === 'journal') body.source_id = ev.source_id;
+        if (ev.note) body.note = ev.note;
+        await fetch(`${API_BASE}/playbook-responses/${pbCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      }catch{}
+    }
+    setPbCopySelectEvidenceId(""); setPbCopyFields({});
+    await loadEvidence(pbCurrentRespId);
+  }
+
+  function renderFieldInput(f:any){
+    const v = pbValues[f.key];
+    const set = (val:any)=> setPbValues(prev => ({...prev, [f.key]: val}));
+    switch(f.type){
+      case 'boolean':
+        return <input type="checkbox" checked={!!v} onChange={e=>set(e.target.checked)} />;
+      case 'number':
+        return <input type="number" step="0.01" value={v ?? ''} onChange={e=>set(e.target.value)} />;
+      case 'select':
+        return <select value={v ?? ''} onChange={e=>set(e.target.value)}>
+          <option value="">Select…</option>
+          {((f.validation?.options)||[]).map((opt:string)=> <option key={opt} value={opt}>{opt}</option>)}
+        </select>;
+      case 'rating':
+        return <input type="number" min={0} max={5} step={0.5} value={v ?? ''} onChange={e=>set(e.target.value)} />;
+      case 'rich_text':
+      case 'text':
+      default:
+        return <input value={v ?? ''} onChange={e=>set(e.target.value)} placeholder={f.label} />;
+    }
+  }
+
+  async function evaluatePlaybook(){
+    if (!pbTplId){ setError('Choose a playbook'); return; }
+    try{
+      const tpl = pbTemplates.find((t:any)=> t.id===pbTplId);
+      const body:any = { template_id: tpl?.id, values: pbValues, template_max_risk_pct: tpl?.template_max_risk_pct, grade_thresholds: tpl?.grade_thresholds, risk_schedule: tpl?.risk_schedule };
+      const r = await fetch(`${API_BASE}/playbooks/evaluate`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Evaluate failed: ${r.status}`);
+      setPbEval(j);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function savePlaybook(){
+    if (!token || !pbTplId){ setError('Login and choose a playbook'); return; }
+    setPbSaving(true);
+    try{
+      const tpl = pbTemplates.find((t:any)=> t.id===pbTplId);
+      const body = { template_id: pbTplId, template_version: tpl?.version, values: pbValues, comments: pbComments };
+      const r = await fetch(`${API_BASE}/trades/${params.id}/playbook-responses`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Save failed: ${r.status}`);
+      await loadPlaybookResponses();
+      // set current response to the one just saved (may be updated or new)
+      const newId = j?.id; if (newId){ setPbCurrentRespId(newId); await loadEvidence(newId); }
+      setPbEval(null);
+      try{ (await import('../../../components/Toaster')).toast('Playbook saved','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); }
+    finally{ setPbSaving(false); }
   }
 
   async function reload(){
@@ -201,17 +394,32 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
     }catch(e:any){ setError(e.message || String(e)); }
   }
 
-  return (
-    <main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
-      <h1>Trade #{params.id}</h1>
+  // Return the page directly to avoid any parser quirks around JSX-in-assignment
+  return (<main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
+      <h1>Trade # {params.id}</h1>
       {error && <p style={{color:'crimson'}}>{error}</p>}
       {!data ? <p>Loading…</p> : (
-        <>
+        <div>
           <div style={{display:'flex', gap:8, marginBottom:8}}>
             <button onClick={()=>setTab('overview')} disabled={tab==='overview'}>Overview</button>
             <button onClick={()=>setTab('notes')} disabled={tab==='notes'}>Notes</button>
             <button onClick={()=>setTab('attachments')} disabled={tab==='attachments'}>Attachments</button>
-            <a href="/trades" style={{marginLeft:'auto'}}>Back to Trades</a>
+            <button onClick={()=>setTab('playbook')} disabled={tab==='playbook'}>Playbook</button>
+            <div style={{marginLeft:'auto', display:'flex', gap:8, alignItems:'center'}}>
+              <label style={{display:'flex', gap:6, alignItems:'center'}}>
+                <input type="checkbox" checked={expIncludePb} onChange={e=>setExpIncludePb(e.target.checked)} /> Include Playbook
+              </label>
+              <label>Evidence:</label>
+              <select value={expEvidence} onChange={e=>setExpEvidence(e.target.value as any)}>
+                <option value="links">Links</option>
+                <option value="thumbs">Thumbnails</option>
+                <option value="full">Full Images</option>
+                <option value="none">None</option>
+              </select>
+              <button onClick={exportMarkdown}>Export MD</button>
+              <button onClick={exportPdf}>Export PDF</button>
+              <a href="/trades">Back to Trades</a>
+            </div>
           </div>
 
           {tab === 'overview' && (
@@ -226,6 +434,156 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
               <div><b>Close:</b> {data.close_time_utc ?? '-'}</div>
               <div><b>Net PnL:</b> {data.net_pnl ?? '-'}</div>
               <div><b>Reviewed:</b> {data.reviewed ? 'Yes' : 'No'}</div>
+            </div>
+          )}
+
+          {tab === 'playbook' && (
+            <div>
+              <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                <label>Playbook:</label>
+                <select value={pbTplId} onChange={e=>{ const v = e.target.value ? parseInt(e.target.value,10) : ""; setPbTplId(v); setPbValues({}); setPbComments({}); setPbEval(null); }}>
+                  <option value="">Select…</option>
+                  {pbTemplates.map((t:any)=> <option key={t.id} value={t.id}>{t.name} (v{t.version})</option>)}
+                </select>
+                {!!pbTplId && (()=>{
+                  const sel = pbTemplates.find((t:any)=> t.id===pbTplId);
+                  if (!sel) return null;
+                  const latest = pbTemplates.filter((t:any)=> t.name===sel.name).sort((a:any,b:any)=> (b.version||0)-(a.version||0))[0];
+                  if (latest && latest.id !== sel.id && latest.version > (sel.version||0)){
+                    return <span style={{fontSize:12, color:'#f59e0b'}} title="A newer version of this template exists; switch to use it">
+                      Newer version v{latest.version} available. <button onClick={()=>{ setPbTplId(latest.id); setPbValues({}); setPbComments({}); setPbEval(null); }}>Upgrade</button>
+                    </span>;
+                  }
+                  return null;
+                })()}
+                {pbEval && (
+                  <span style={{marginLeft:'auto', fontWeight:600}}>Grade: {pbEval.grade} · Cap: {pbEval.risk_cap_pct}% · Compliance: {(pbEval.compliance_score*100).toFixed(0)}%</span>
+                )}
+              </div>
+
+              {!!pbTplId && (
+                <div style={{marginTop:8, display:'grid', gridTemplateColumns:'1fr', gap:8}}>
+                  {pbTemplates.find((t:any)=>t.id===pbTplId)?.schema?.map((f:any)=>(
+                    <div key={f.key} style={{display:'grid', gridTemplateColumns:'220px 1fr', gap:8, alignItems:'center'}}>
+                      <div style={{fontWeight:600}}>{f.label}{f.required ? ' *' : ''}</div>
+                      <div>{renderFieldInput(f)}</div>
+                      {f.allow_comment && (
+                        <>
+                          <div style={{fontSize:12, color:'#64748b'}}>Comment</div>
+                          <input value={pbComments[f.key] ?? ''} onChange={e=> setPbComments(prev => ({...prev, [f.key]: e.target.value}))} placeholder="Notes for this criterion" />
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{display:'flex', gap:8}}>
+                    <button type="button" onClick={evaluatePlaybook}>Evaluate</button>
+                    <button type="button" onClick={savePlaybook} disabled={pbSaving}>{pbSaving ? 'Saving…' : 'Save'}</button>
+                  </div>
+                </div>
+              )}
+
+              {!!pbResponses.length && (
+                <div style={{marginTop:16}}>
+                  <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
+                    <div style={{fontWeight:600}}>Previous Responses</div>
+                    <select value={pbCurrentRespId ?? ''} onChange={async e=>{ const id = e.target.value ? parseInt(e.target.value,10) : null; setPbCurrentRespId(id); if (id) await loadEvidence(id); }}>
+                      <option value="">Select response…</option>
+                      {pbResponses.map((r:any)=> (
+                        <option key={r.id} value={r.id}>#{r.id} v{r.template_version} — grade {r.computed_grade ?? '—'} — {r.compliance_score != null ? `${Math.round(r.compliance_score*100)}%` : '—'} — {r.created_at}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #e5e7eb'}}>
+                    <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                      <div style={{fontWeight:600}}>Evidence</div>
+                      <label style={{marginLeft:12}}>Field:</label>
+                      <select value={pbEvidenceField} onChange={e=>setPbEvidenceField(e.target.value)}>
+                        <option value="">Select…</option>
+                        {pbTemplates.find((t:any)=>t.id===pbTplId)?.schema?.map((f:any)=>(<option key={f.key} value={f.key}>{f.label}</option>))}
+                      </select>
+                      <span style={{marginLeft:'auto'}}>Current response: {pbCurrentRespId ?? '—'}</span>
+                    </div>
+
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:8}}>
+                      <div>
+                        <div style={{fontWeight:600, marginBottom:6}}>Link Trade Attachments</div>
+                        {!data?.attachments?.length ? <div style={{color:'#64748b'}}>No trade attachments</div> : (
+                          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px,1fr))', gap:8}}>
+                            {data.attachments.map(a => (
+                              <div key={a.id} style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8}}>
+                                <div style={{fontSize:12, color:'#334155'}}>{a.filename}</div>
+                                <button onClick={()=>addEvidenceTradeAttachment(a.id)}>Link</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div style={{fontWeight:600, marginBottom:6}}>Link Journal Attachments</div>
+                        <div style={{display:'flex', gap:6, alignItems:'center', marginBottom:8}}>
+                          <input type="date" value={pbJournalDate} onChange={e=>setPbJournalDate(e.target.value)} />
+                          <button onClick={loadJournalAttachments} disabled={!pbJournalDate}>Load</button>
+                        </div>
+                        {!pbJournalAtts.length ? <div style={{color:'#64748b'}}>No journal attachments</div> : (
+                          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px,1fr))', gap:8}}>
+                            {pbJournalAtts.map(a => (
+                              <div key={a.id} style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8}}>
+                                <div style={{fontSize:12, color:'#334155'}}>{a.filename}</div>
+                                <button onClick={()=>addEvidenceJournalAttachment(a)}>Link</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{marginTop:12}}>
+                      <div style={{fontWeight:600, marginBottom:6}}>Link URL Evidence</div>
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, alignItems:'center'}}>
+                        <input placeholder="https://…" value={pbEvidenceUrl} onChange={e=>setPbEvidenceUrl(e.target.value)} />
+                        <input placeholder="Note (optional)" value={pbEvidenceNote} onChange={e=>setPbEvidenceNote(e.target.value)} />
+                        <button onClick={addEvidenceUrl}>Add URL</button>
+                      </div>
+                    </div>
+
+                    <div style={{marginTop:12}}>
+                      <div style={{fontWeight:600, marginBottom:6}}>Copy Existing Evidence</div>
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, alignItems:'center'}}>
+                        <select value={pbCopySelectEvidenceId ?? ''} onChange={e=> setPbCopySelectEvidenceId(e.target.value ? parseInt(e.target.value,10) : '')}>
+                          <option value="">Select evidence…</option>
+                          {pbEvidence.map((e:any)=> (
+                            <option key={e.id} value={e.id}>#{e.id} {e.field_key} — {e.source_kind}</option>
+                          ))}
+                        </select>
+                        <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+                          {pbTemplates.find((t:any)=>t.id===pbTplId)?.schema?.map((f:any)=> (
+                            <label key={f.key} style={{display:'flex', alignItems:'center', gap:4}}>
+                              <input type="checkbox" checked={!!pbCopyFields[f.key]} onChange={e=> setPbCopyFields(prev=> ({...prev, [f.key]: e.target.checked}))} />
+                              <span style={{fontSize:12}}>{f.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <button onClick={()=>{ const ev = pbEvidence.find((x:any)=> x.id===pbCopySelectEvidenceId); if (ev) copyEvidenceToFields(ev); }}>Apply</button>
+                      </div>
+                    </div>
+
+                    <div style={{marginTop:12}}>
+                      <div style={{fontWeight:600, marginBottom:6}}>Existing Evidence</div>
+                      {!pbEvidence.length ? <div style={{color:'#64748b'}}>No evidence linked</div> : (
+                        <ul>
+                          {pbEvidence.map((e:any)=>(
+                            <li key={e.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                              <span>{e.field_key} — {e.source_kind}{e.url ? `: ${e.url}` : ''}{e.note ? ` — ${e.note}` : ''}</span>
+                              <button onClick={()=>removeEvidence(e.id)}>Remove</button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -404,8 +762,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
-    </main>
-  );
+    </main>);
 }

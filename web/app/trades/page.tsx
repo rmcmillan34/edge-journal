@@ -26,6 +26,8 @@ function TradesView(){
   const [symbol, setSymbol] = useState("");
   const [account, setAccount] = useState("");
   const [displayTz, setDisplayTz] = useState<string>("");
+  const [gradeFilter, setGradeFilter] = useState<string>("");
+  const [gradesMap, setGradesMap] = useState<Record<number, string>>({});
   const [showAdd, setShowAdd] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
   const [form, setForm] = useState({
@@ -133,6 +135,17 @@ function TradesView(){
       const j = await r.json();
       if (!r.ok) throw new Error(j.detail || `Failed: ${r.status}`);
       setItems(j);
+      // Load playbook grades for current page
+      try{
+        const ids = (j||[]).map((t:any)=>t.id).join(',');
+        if (ids){
+          const rg = await fetch(`${API_BASE}/playbooks/grades?trade_ids=${ids}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+          const gj = await rg.json().catch(()=>({}));
+          if (rg.ok && gj && gj.grades) setGradesMap(gj.grades);
+        } else {
+          setGradesMap({});
+        }
+      }catch{}
       setSelected([]);
     } catch (e:any) {
       setError(e.message || String(e));
@@ -322,7 +335,7 @@ function TradesView(){
   }
 
   const rows = useMemo(() => items.map(t => (
-    <tr key={t.id}>
+    (!gradeFilter || (gradesMap[t.id] || '') === gradeFilter) && <tr key={t.id}>
       <td><input type="checkbox" checked={selected.includes(t.id)} onChange={e=>toggleSelect(t.id, e.target.checked)} /></td>
       <td>{t.account_name || '-'}</td>
       <td><a href={`/trades/${t.id}`}>{t.symbol || '-'}</a></td>
@@ -333,8 +346,9 @@ function TradesView(){
       <td>{fmtDate(t.open_time_utc)}</td>
       <td>{fmtDate(t.close_time_utc)}</td>
       <td style={{color:(t.net_pnl ?? 0) >=0 ? 'green':'crimson'}}>{t.net_pnl ?? '-'}</td>
+      <td>{gradesMap[t.id] || '-'}</td>
     </tr>
-  )), [items, selected, displayTz]);
+  )).filter(Boolean), [items, selected, displayTz, gradeFilter, gradesMap]);
 
   async function exportCsv(){
     if (!token){ setError('Login required'); return; }
@@ -404,6 +418,13 @@ function TradesView(){
           <datalist id="account-list">
             {accounts.map(a => (<option key={a.id} value={a.name} />))}
           </datalist>
+        </div>
+        <div style={{display:'flex', alignItems:'center', gap:6}}>
+          <label>Grade:</label>
+          <select value={gradeFilter} onChange={e=> setGradeFilter(e.target.value)}>
+            <option value="">Any</option>
+            {['A','B','C','D'].map(g => (<option key={g} value={g}>{g}</option>))}
+          </select>
         </div>
         <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
         <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} />
@@ -504,6 +525,7 @@ function TradesView(){
               <th style={{cursor:'pointer'}} onClick={()=>toggleSort('open_time_utc')}>Open{sortIndicator('open_time_utc')}</th>
               <th style={{cursor:'pointer'}} onClick={()=>toggleSort('close_time_utc')}>Close{sortIndicator('close_time_utc')}</th>
               <th style={{cursor:'pointer'}} onClick={()=>toggleSort('net_pnl')}>Net PnL{sortIndicator('net_pnl')}</th>
+              <th>Grade</th>
             </tr>
           </thead>
           <tbody>
