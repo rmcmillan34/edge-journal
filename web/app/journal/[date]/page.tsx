@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 type Journal = { id:number; date:string; title?:string|null; notes_md?:string|null; reviewed:boolean; account_id?:number|null; trade_ids:number[] };
 type Trade = { id:number; account_name?:string|null; symbol?:string|null; side:string; qty_units?:number|null; entry_price?:number|null; exit_price?:number|null; open_time_utc:string; close_time_utc?:string|null; net_pnl?:number|null };
@@ -25,9 +25,28 @@ export default function JournalPage({ params }:{ params: { date: string } }){
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
   const [attSel, setAttSel] = useState<number[]>([]);
   const [reorderMode, setReorderMode] = useState(false);
+  // Instrument checklist (playbook) state
+  const [icPurpose, setIcPurpose] = useState<'pre'|'generic'>('pre');
+  const [icTemplates, setIcTemplates] = useState<any[]>([]);
+  const [icTplId, setIcTplId] = useState<number | "">("");
+  const [icSymbol, setIcSymbol] = useState<string>("");
+  const [icValues, setIcValues] = useState<Record<string, any>>({});
+  const [icComments, setIcComments] = useState<Record<string, string>>({});
+  const [icEval, setIcEval] = useState<{ compliance_score:number; grade:string; risk_cap_pct:number }|null>(null);
+  const [icResponses, setIcResponses] = useState<any[]>([]);
+  const [icCurrentRespId, setIcCurrentRespId] = useState<number | null>(null);
+  const [icEvidence, setIcEvidence] = useState<any[]>([]);
+  const [icEvidenceField, setIcEvidenceField] = useState<string>("");
+  const [icEvidenceUrl, setIcEvidenceUrl] = useState<string>("");
+  const [icEvidenceNote, setIcEvidenceNote] = useState<string>("");
+  const [icTradeId, setIcTradeId] = useState<number | "">("");
+  const [icTradeAtts, setIcTradeAtts] = useState<any[]>([]);
+  const [icCopyOpenFor, setIcCopyOpenFor] = useState<number | null>(null);
+  const [icCopyFields, setIcCopyFields] = useState<Record<string, boolean>>({});
+  const [icCopySelectEvidenceId, setIcCopySelectEvidenceId] = useState<number | "">("");
 
   useEffect(()=>{ try{ setToken(localStorage.getItem("ej_token") || ""); }catch{} }, []);
-  useEffect(()=>{ if (token){ reload(); loadTrades(); loadTemplates(); } }, [token, d]);
+  useEffect(()=>{ if (token){ reload(); loadTrades(); loadTemplates(); loadIcTemplates(); } }, [token, d]);
   // Esc exits reorder mode
   useEffect(()=>{
     function onKey(e: KeyboardEvent){ if (e.key === 'Escape' && reorderMode){ e.preventDefault(); setReorderMode(false); } }
@@ -53,18 +72,37 @@ export default function JournalPage({ params }:{ params: { date: string } }){
     }catch{}
   }
 
+  async function loadIcTemplates(){
+    try{
+      const r = await fetch(`${API_BASE}/playbooks/templates?purpose=${icPurpose}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.ok){ const j = await r.json(); setIcTemplates(Array.isArray(j)?j:[]); }
+    }catch{}
+  }
+
+  async function loadIcExisting(){
+    if (!icSymbol) return;
+    try{
+      const r = await fetch(`${API_BASE}/journal/${d}/instrument/${encodeURIComponent(icSymbol)}/playbook-responses`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.ok){ const j = await r.json(); setIcResponses(Array.isArray(j)?j:[]); const latest = (Array.isArray(j) && j.length) ? j[0] : null; if (latest){ setIcCurrentRespId(latest.id); setIcValues(latest.values||{}); setIcComments(latest.comments||{}); await loadIcEvidence(latest.id); } }
+    }catch{}
+  }
+
   async function reload(){
-    setError(null);
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-    const r = await fetch(`${API_BASE}/journal/${d}`, { headers });
-    if (r.status === 404){ setData(null); setTitle(""); setNotes(""); setSelected([]); return; }
-    const j = await r.json();
-    if (!r.ok) { setError(j.detail || `Failed: ${r.status}`); return; }
-    setData(j);
-    setTitle(j.title || "");
-    setNotes(j.notes_md || "");
-    setSelected(j.trade_ids || []);
-    await loadAtts(j.id);
+    try{
+      setError(null);
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const r = await fetch(`${API_BASE}/journal/${d}`, { headers });
+      if (r.status === 404){ setData(null); setTitle(""); setNotes(""); setSelected([]); return; }
+      const j = await r.json();
+      if (!r.ok) { setError(j.detail || `Failed: ${r.status}`); return; }
+      setData(j);
+      setTitle(j.title || "");
+      setNotes(j.notes_md || "");
+      setSelected(j.trade_ids || []);
+      await loadAtts(j.id);
+    }catch(e:any){
+      setError(e?.message || 'Network error');
+    }
   }
 
   async function save(){
@@ -78,6 +116,107 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       try{ (await import('../../../components/Toaster')).toast('Journal saved','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setSaving(false); }
+  }
+
+  async function icEvaluate(){
+    if (!icTplId){ setError('Choose a playbook'); return; }
+    try{
+      const tpl = icTemplates.find((t:any)=> t.id===icTplId);
+      const body:any = { template_id: tpl?.id, values: icValues, template_max_risk_pct: tpl?.template_max_risk_pct, grade_thresholds: tpl?.grade_thresholds, risk_schedule: tpl?.risk_schedule };
+      const r = await fetch(`${API_BASE}/playbooks/evaluate`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Evaluate failed: ${r.status}`);
+      setIcEval(j);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function icSave(){
+    if (!icTplId || !icSymbol){ setError('Symbol and playbook required'); return; }
+    try{
+      const tpl = icTemplates.find((t:any)=> t.id===icTplId);
+      const body = { template_id: icTplId, template_version: tpl?.version, values: icValues, comments: icComments };
+      const r = await fetch(`${API_BASE}/journal/${d}/instrument/${encodeURIComponent(icSymbol)}/playbook-response`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Save failed: ${r.status}`);
+      await loadIcExisting();
+      if (j && j.id){ setIcCurrentRespId(j.id); await loadIcEvidence(j.id); }
+      try{ (await import('../../../components/Toaster')).toast('Instrument checklist saved','success'); }catch{}
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function onPrevChecklistChange(e: React.ChangeEvent<HTMLSelectElement>){
+    const val = e.target.value;
+    const id = val ? parseInt(val, 10) : null;
+    setIcCurrentRespId(id);
+    if (id){
+      await loadIcEvidence(id);
+      const resp = icResponses.find((r:any)=> r.id === id);
+      if (resp){
+        setIcValues(resp.values || {});
+        setIcComments(resp.comments || {});
+      }
+    }
+  }
+
+  async function loadIcEvidence(respId:number){
+    try{
+      const r = await fetch(`${API_BASE}/playbook-responses/${respId}/evidence`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+      if (r.ok){ const j = await r.json(); setIcEvidence(Array.isArray(j)?j:[]); }
+    }catch{}
+  }
+
+  async function icAddEvidenceUrl(){
+    if (!icCurrentRespId || !icEvidenceField || !icEvidenceUrl){ setError('Select field and enter URL'); return; }
+    try{
+      const body = { field_key: icEvidenceField, source_kind:'url', url: icEvidenceUrl, note: icEvidenceNote };
+      const r = await fetch(`${API_BASE}/playbook-responses/${icCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Add failed: ${r.status}`);
+      setIcEvidenceField(""); setIcEvidenceUrl(""); setIcEvidenceNote("");
+      await loadIcEvidence(icCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function icRemoveEvidence(eid:number){
+    if (!icCurrentRespId) return;
+    try{
+      const r = await fetch(`${API_BASE}/playbook-responses/${icCurrentRespId}/evidence/${eid}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` }});
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Delete failed: ${r.status}`); }
+      await loadIcEvidence(icCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function loadIcTradeAttachments(){
+    if (!icTradeId) return;
+    try{
+      const r = await fetch(`${API_BASE}/trades/${icTradeId}/attachments`, { headers: token ? { Authorization:`Bearer ${token}` } : undefined });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Failed: ${r.status}`);
+      setIcTradeAtts(Array.isArray(j) ? j : []);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function icAddEvidenceTradeAttachment(att:any){
+    if (!icCurrentRespId || !icEvidenceField){ setError('Select field'); return; }
+    try{
+      const body = { field_key: icEvidenceField, source_kind:'trade', source_id: att.id };
+      const r = await fetch(`${API_BASE}/playbook-responses/${icCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      if (!r.ok){ const j = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(j.detail || `Add failed: ${r.status}`); }
+      await loadIcEvidence(icCurrentRespId);
+    }catch(e:any){ setError(e.message || String(e)); }
+  }
+
+  async function icCopyEvidenceToFields(ev:any){
+    if (!icCurrentRespId) return;
+    const tpl = icTemplates.find((t:any)=> t.id===icTplId);
+    const keys = (tpl?.schema||[]).map((f:any)=> f.key).filter((k:string)=> icCopyFields[k]);
+    for (const key of keys){
+      try{
+        const body:any = { field_key: key, source_kind: ev.source_kind };
+        if (ev.source_kind === 'url') body.url = ev.url;
+        if (ev.source_kind === 'trade' || ev.source_kind === 'journal') body.source_id = ev.source_id;
+        if (ev.note) body.note = ev.note;
+        await fetch(`${API_BASE}/playbook-responses/${icCurrentRespId}/evidence`, { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` }, body: JSON.stringify(body) });
+      }catch{}
+    }
+    setIcCopyOpenFor(null); setIcCopyFields({});
+    await loadIcEvidence(icCurrentRespId);
   }
 
   async function createTemplateFromNotes(){
@@ -235,6 +374,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
   }
 
   return (
+    <React.Fragment>
     <main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
       <h1>Daily Journal — {d}</h1>
       <div style={{marginBottom:8}}><a href="/dashboard">Back to Dashboard</a></div>
@@ -299,6 +439,133 @@ export default function JournalPage({ params }:{ params: { date: string } }){
           <button onClick={createTemplateFromNotes}>Create template from these notes</button>
         </div>
         <textarea ref={notesRef} rows={10} value={notes} onChange={e=>setNotes(e.target.value)} style={{width:'100%'}} />
+        <div style={{marginTop:16, padding:12, border:'1px solid #e5e7eb', borderRadius:8}}>
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            <h3 style={{margin:0}}>Instrument Checklist</h3>
+            <label style={{marginLeft:12}}>Purpose:</label>
+            <select value={icPurpose} onChange={e=>{ setIcPurpose((e.target.value as any)); setIcTplId(''); setIcValues({}); setIcComments({}); setIcEval(null); setTimeout(loadIcTemplates, 0); }}>
+              <option value="pre">Pre</option>
+              <option value="generic">Generic</option>
+            </select>
+            <label style={{marginLeft:12}}>Symbol:</label>
+            <input placeholder="e.g., ESZ5/GBPUSD" value={icSymbol} onChange={e=> setIcSymbol(e.target.value)} onBlur={loadIcExisting} />
+            {icEval && (
+              <span style={{marginLeft:'auto', fontWeight:600}}>Grade: {icEval.grade} · Cap: {icEval.risk_cap_pct}% · Compliance: {(icEval.compliance_score*100).toFixed(0)}%</span>
+            )}
+          </div>
+          <div style={{display:'flex', gap:8, alignItems:'center', marginTop:8}}>
+            <label>Playbook:</label>
+            <select value={icTplId} onChange={e=>{ const v = e.target.value ? parseInt(e.target.value,10) : ""; setIcTplId(v); setIcValues({}); setIcComments({}); setIcEval(null); }}>
+              <option value="">Select…</option>
+              {icTemplates.map((t:any)=> <option key={t.id} value={t.id}>{t.name} (v{t.version})</option>)}
+            </select>
+            <button onClick={icEvaluate} disabled={!icTplId}>Evaluate</button>
+            <button onClick={icSave} disabled={!icTplId || !icSymbol}>Save</button>
+          </div>
+          {!!icTplId && (
+            <div style={{marginTop:8, display:'grid', gridTemplateColumns:'1fr', gap:8}}>
+              {icTemplates.find((t:any)=>t.id===icTplId)?.schema?.map((f:any)=> (
+                <div key={f.key} style={{display:'grid', gridTemplateColumns:'220px 1fr', gap:8, alignItems:'center'}}>
+                  <div style={{fontWeight:600}}>{f.label}{f.required ? ' *' : ''}</div>
+                  <FieldInput f={f} v={icValues[f.key]} onChange={(val:any)=> setIcValues(prev=> ({...prev, [f.key]: val}))} />
+                  {f.allow_comment && (<>
+                    <div style={{fontSize:12, color:'#64748b'}}>Comment</div>
+                    <input value={icComments[f.key] ?? ''} onChange={e=> setIcComments(prev => ({...prev, [f.key]: e.target.value}))} placeholder="Notes for this criterion" />
+                  </>)}
+                </div>
+              ))}
+            </div>
+          )}
+          {!!icResponses.length && (
+            <div style={{marginTop:16}}>
+              <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
+                <div style={{fontWeight:600}}>Previous Checklists</div>
+                <select value={icCurrentRespId ?? ''} onChange={onPrevChecklistChange}>
+                  <option value="">Select response…</option>
+                  {icResponses.map((r:any)=> (
+                    <option key={r.id} value={r.id}>#{r.id} v{r.template_version} — grade {r.computed_grade ?? '—'} — {r.compliance_score != null ? `${Math.round(r.compliance_score*100)}%` : '—'} — {r.created_at}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid #e5e7eb'}}>
+                <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                  <div style={{fontWeight:600}}>Evidence</div>
+                  <label style={{marginLeft:12}}>Field:</label>
+                  <select value={icEvidenceField} onChange={e=>setIcEvidenceField(e.target.value)}>
+                    <option value="">Select…</option>
+                    {icTemplates.find((t:any)=>t.id===icTplId)?.schema?.map((f:any)=>(<option key={f.key} value={f.key}>{f.label}</option>))}
+                  </select>
+                  <span style={{marginLeft:'auto'}}>Current response: {icCurrentRespId ?? '—'}</span>
+                </div>
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:8}}>
+                  <div>
+                    <div style={{fontWeight:600, marginBottom:6}}>Link Trade Attachments</div>
+                    <div style={{display:'flex', gap:6, alignItems:'center', marginBottom:8}}>
+                      <select value={icTradeId} onChange={e=> setIcTradeId(e.target.value ? parseInt(e.target.value,10) : '')}>
+                        <option value="">Select trade…</option>
+                        {(icSymbol ? trades.filter(t => (t.symbol||'').toUpperCase().includes(icSymbol.toUpperCase())) : trades).map(t => (
+                          <option key={t.id} value={t.id}>#{t.id} {t.symbol} {t.side} {t.qty_units ?? ''}</option>
+                        ))}
+                      </select>
+                      <button onClick={loadIcTradeAttachments} disabled={!icTradeId}>Load</button>
+                    </div>
+                    {!icTradeAtts.length ? <div style={{color:'#64748b'}}>No trade attachments</div> : (
+                      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px,1fr))', gap:8}}>
+                        {icTradeAtts.map(a => (
+                          <div key={a.id} style={{border:'1px solid #e5e7eb', borderRadius:8, padding:8}}>
+                            <div style={{fontSize:12, color:'#334155'}}>{a.filename}</div>
+                            <button onClick={()=>icAddEvidenceTradeAttachment(a)} disabled={!icEvidenceField}>Link to field</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{fontWeight:600, marginBottom:6}}>Copy Existing Evidence</div>
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, alignItems:'center'}}>
+                      <select value={icCopySelectEvidenceId ?? ''} onChange={e=> setIcCopySelectEvidenceId(e.target.value ? parseInt(e.target.value,10) : '')}>
+                        <option value="">Select evidence…</option>
+                        {icEvidence.map((e:any)=> (
+                          <option key={e.id} value={e.id}>#{e.id} {e.field_key} — {e.source_kind}</option>
+                        ))}
+                      </select>
+                      <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+                        {icTemplates.find((t:any)=>t.id===icTplId)?.schema?.map((f:any)=> (
+                          <label key={f.key} style={{display:'flex', alignItems:'center', gap:4}}>
+                            <input type="checkbox" checked={!!icCopyFields[f.key]} onChange={e=> setIcCopyFields(prev=> ({...prev, [f.key]: e.target.checked}))} />
+                            <span style={{fontSize:12}}>{f.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <button onClick={()=>{ const ev = icEvidence.find((x:any)=> x.id===icCopySelectEvidenceId); if (ev) icCopyEvidenceToFields(ev); }}>Apply</button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{marginTop:8}}>
+                  <div style={{fontWeight:600, marginBottom:6}}>Link URL Evidence</div>
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, alignItems:'center'}}>
+                    <input placeholder="https://…" value={icEvidenceUrl} onChange={e=>setIcEvidenceUrl(e.target.value)} />
+                    <input placeholder="Note (optional)" value={icEvidenceNote} onChange={e=>setIcEvidenceNote(e.target.value)} />
+                    <button onClick={icAddEvidenceUrl}>Add URL</button>
+                  </div>
+                </div>
+                <div style={{marginTop:12}}>
+                  <div style={{fontWeight:600, marginBottom:6}}>Existing Evidence</div>
+                  {!icEvidence.length ? <div style={{color:'#64748b'}}>No evidence linked</div> : (
+                    <ul>
+                      {icEvidence.map((e:any)=>(
+                        <li key={e.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                          <span>{e.field_key} — {e.source_kind}{e.url ? `: ${e.url}` : ''}{e.note ? ` — ${e.note}` : ''}</span>
+                          <button onClick={()=>icRemoveEvidence(e.id)}>Remove</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         <div style={{display:'flex', gap:8}}>
           <button onClick={save} disabled={saving}>{saving ? 'Saving…' : (data ? 'Save' : 'Create')}</button>
           {data && (
@@ -432,5 +699,26 @@ export default function JournalPage({ params }:{ params: { date: string } }){
         )}
       </div>
     </main>
+    </React.Fragment>
   );
+}
+
+function FieldInput({ f, v, onChange }:{ f:any; v:any; onChange:(val:any)=>void }){
+  switch(f.type){
+    case 'boolean':
+      return <input type="checkbox" checked={!!v} onChange={e=>onChange(e.target.checked)} />;
+    case 'number':
+      return <input type="number" step="0.01" value={v ?? ''} onChange={e=>onChange(e.target.value)} />;
+    case 'select':
+      return <select value={v ?? ''} onChange={e=>onChange(e.target.value)}>
+        <option value="">Select…</option>
+        {((f.validation?.options)||[]).map((opt:string)=> <option key={opt} value={opt}>{opt}</option>)}
+      </select>;
+    case 'rating':
+      return <input type="number" min={0} max={5} step={0.5} value={v ?? ''} onChange={e=>onChange(e.target.value)} />;
+    case 'rich_text':
+    case 'text':
+    default:
+      return <input value={v ?? ''} onChange={e=>onChange(e.target.value)} placeholder={f.label} />;
+  }
 }

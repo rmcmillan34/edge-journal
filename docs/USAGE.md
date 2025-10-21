@@ -21,6 +21,12 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 - The calendar indicates presence of journal entries (blue dot) and attachment counts (×N), and colors days green/red by PnL.
 - Toggle “Hide weekends” to switch between 7‑day and 5‑day calendar views; preference is remembered.
 
+#### Calendar badges legend
+- ⚠️: Loss streak exceeded (day)
+- 🟨: Losing day streak exceeded (week)
+- 🟧: Losing week streak exceeded (month)
+- ⛔: Risk cap exceeded (minimum of template/grade/account caps)
+
 ### Trades
 - Go to `/trades` to view imported or manually created trades.
 - Filters: symbol, account, and date range. Sort by time, PnL, symbol, or account.

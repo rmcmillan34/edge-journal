@@ -94,6 +94,7 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
             <a href="/upload">Upload</a>
             <a href="/uploads">Imports</a>
             <a href="/trades">Trades</a>
+            <a href="/playbooks">Playbooks</a>
             <a href="/templates">Templates</a>
           </div>
           <div style={{display:'flex', alignItems:'center', gap:8}}>

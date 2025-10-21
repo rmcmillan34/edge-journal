@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, RootModel
 from pydantic import ConfigDict
 from typing import Dict, List, Optional
+from typing import Any, Literal
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -48,8 +49,17 @@ class AccountOut(BaseModel):
     broker_label: Optional[str] = None
     base_ccy: Optional[str] = None
     status: str
+    account_max_risk_pct: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AccountUpdate(BaseModel):
+    name: Optional[str] = None
+    broker_label: Optional[str] = None
+    base_ccy: Optional[str] = None
+    status: Optional[str] = None
+    account_max_risk_pct: Optional[float] = None
 
 
 class TradeOut(BaseModel):
@@ -173,3 +183,125 @@ class TemplateOut(BaseModel):
 class TemplateUpdate(BaseModel):
     name: Optional[str] = None
     sections: Optional[List[TemplateSection]] = None
+
+
+# --- Playbooks (M5) ---
+class PlaybookField(BaseModel):
+    key: str
+    label: str
+    type: Literal['boolean','select','number','text','rating','rich_text']
+    required: Optional[bool] = False
+    weight: Optional[float] = 1.0
+    allow_comment: Optional[bool] = False
+    validation: Optional[Dict[str, Any]] = None  # {min,max,regex,options[]}
+    rich_text: Optional[bool] = None
+
+
+class PlaybookTemplateCreate(BaseModel):
+    name: str
+    purpose: Literal['pre','in','post','generic']
+    strategy_bindings: Optional[List[str]] = None
+    schema: List[PlaybookField]
+    grade_thresholds: Optional[Dict[str, float]] = None
+    risk_schedule: Optional[Dict[str, float]] = None
+    template_max_risk_pct: Optional[float] = None
+
+
+class PlaybookTemplateOut(BaseModel):
+    id: int
+    name: str
+    purpose: str
+    version: int
+    is_active: bool
+    schema: List[PlaybookField]
+    grade_thresholds: Optional[Dict[str, float]] = None
+    risk_schedule: Optional[Dict[str, float]] = None
+    template_max_risk_pct: Optional[float] = None
+    created_at: Optional[str] = None
+
+
+class PlaybookTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    purpose: Optional[Literal['pre','in','post','generic']] = None
+    strategy_bindings: Optional[List[str]] = None
+    schema: Optional[List[PlaybookField]] = None
+    grade_thresholds: Optional[Dict[str, float]] = None
+    risk_schedule: Optional[Dict[str, float]] = None
+    template_max_risk_pct: Optional[float] = None
+
+
+class PlaybookTemplateMeta(BaseModel):
+    id: int
+    name: str
+    purpose: str
+    version: int
+
+
+class PlaybookResponseCreate(BaseModel):
+    template_id: int
+    template_version: Optional[int] = None
+    values: Dict[str, Any]
+    comments: Optional[Dict[str, str]] = None
+    intended_risk_pct: Optional[float] = None
+
+
+class PlaybookResponseOut(BaseModel):
+    id: int
+    template_id: int
+    template_version: int
+    values: Dict[str, Any]
+    comments: Optional[Dict[str, str]] = None
+    computed_grade: Optional[str] = None
+    compliance_score: Optional[float] = None
+    intended_risk_pct: Optional[float] = None
+    created_at: Optional[str] = None
+    template_meta: Optional[PlaybookTemplateMeta] = None
+
+
+class EvidenceCreate(BaseModel):
+    field_key: str
+    source_kind: Literal['trade','journal','url']
+    source_id: Optional[int] = None
+    url: Optional[str] = None
+    note: Optional[str] = None
+
+
+class EvidenceOut(BaseModel):
+    id: int
+    field_key: str
+    source_kind: str
+    source_id: Optional[int] = None
+    url: Optional[str] = None
+    note: Optional[str] = None
+
+
+class TradingRules(BaseModel):
+    max_losses_row_day: int
+    max_losing_days_streak_week: int
+    max_losing_weeks_streak_month: int
+    alerts_enabled: bool = True
+
+
+class PlaybookEvaluateIn(BaseModel):
+    template_id: Optional[int] = None
+    schema: Optional[List[PlaybookField]] = None
+    values: Dict[str, Any]
+    grade_thresholds: Optional[Dict[str, float]] = None
+    risk_schedule: Optional[Dict[str, float]] = None
+    template_max_risk_pct: Optional[float] = None
+    account_max_risk_pct: Optional[float] = None
+    intended_risk_pct: Optional[float] = None
+
+
+class PlaybookEvaluateOut(BaseModel):
+    compliance_score: float
+    grade: Literal['A','B','C','D']
+    risk_cap_pct: float
+    cap_breakdown: Dict[str, Optional[float]]
+    exceeded: Optional[bool] = None
+    messages: Optional[List[str]] = None
+
+
+class PlaybookTemplateCloneIn(BaseModel):
+    name: Optional[str] = None
+    purpose: Optional[Literal['pre','in','post','generic']] = None

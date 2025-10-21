@@ -1,5 +1,6 @@
 SHELL := /bin/bash
 .PHONY: up down logs fmt lint test api web build-api migrate
+.PHONY: clean-cache
 .PHONY: fonts
 
 up:
@@ -42,3 +43,13 @@ fonts:
 	@curl -L -o /tmp/IosevkaNF.zip https://github.com/ryanoasis/nerd-fonts/releases/download/v3.1.0/Iosevka.zip
 	@unzip -j -o /tmp/IosevkaNF.zip "*IosevkaNerdFont-Regular.ttf" "*IosevkaNerdFont-Bold.ttf" -d web/public/fonts
 	@ls -la web/public/fonts
+
+# One-liner to nuke build caches (Docker + Next.js)
+clean-cache:
+	@echo "Pruning Docker caches, removing old images, and clearing Next.js cache" ; \
+	(docker compose down -v --remove-orphans || true) ; \
+	docker builder prune -af -f || true ; \
+	docker buildx prune -af -f || true ; \
+	(docker image rm -f edge-journal-web edge-journal-api || true) ; \
+	rm -rf web/.next web/.turbo || true ; \
+	echo "Done. Rebuild with: docker compose build --no-cache --progress=plain web"
