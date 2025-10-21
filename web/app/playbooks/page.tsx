@@ -274,7 +274,7 @@ export default function PlaybooksPage(){
 
   function renderEditFieldRow(f: PlaybookField, idx:number){
     return (
-      <div key={idx} draggable onDragStart={e=>{ e.dataTransfer.setData('text/plain', String(idx)); }} onDragOver={e=>e.preventDefault()} onDrop={e=>{ e.preventDefault(); const s = e.dataTransfer.getData('text/plain'); const from = parseInt(s,10); if (isNaN(from)) return; moveEditField(from, idx); }} style={{display:'grid', gridTemplateColumns:'1fr 120px 80px 80px 1fr auto auto', gap:8, alignItems:'center'}}>
+      <div key={idx} draggable onDragStart={e=>{ e.dataTransfer.setData('text/plain', String(idx)); }} onDragOver={e=>e.preventDefault()} onDrop={e=>{ e.preventDefault(); const s = e.dataTransfer.getData('text/plain'); const from = parseInt(s,10); if (isNaN(from)) return; moveEditFieldTo(from, idx); }} style={{display:'grid', gridTemplateColumns:'1fr 120px 80px 80px 1fr auto auto', gap:8, alignItems:'center'}}>
         <input placeholder="Key" value={f.key} onChange={e=>updateEditField(idx,{ key: e.target.value })} />
         <select value={f.type} onChange={e=>updateEditField(idx,{ type: (e.target.value as any) })}>
           <option value="boolean">Boolean</option>
@@ -311,7 +311,7 @@ export default function PlaybooksPage(){
     );
   }
 
-  function moveEditField(from:number, to:number){
+  function moveEditFieldTo(from:number, to:number){
     setEditFields(prev => {
       const arr = prev.slice();
       if (from<0 || from>=arr.length || to<0 || to>=arr.length) return arr;
