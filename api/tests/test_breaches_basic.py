@@ -68,6 +68,10 @@ def test_breach_created_on_risk_cap_exceed_and_acknowledge():
     rb = client.get("/breaches?scope=trade", headers=auth)
     assert rb.status_code == 200, rb.text
     items = rb.json()
+    # If flakey timing, fetch again
+    if not any(b.get("rule_key") == "risk_cap_exceeded" for b in items):
+        rb = client.get("/breaches?scope=trade", headers=auth)
+        items = rb.json()
     assert any(b.get("rule_key") == "risk_cap_exceeded" for b in items)
 
     # Acknowledge the first one

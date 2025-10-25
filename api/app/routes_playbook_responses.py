@@ -147,6 +147,16 @@ def upsert_trade_response(
     elif compliance >= grade_thresholds.get('C', 0.6):
         grade = 'C'
 
+    # Infer intended risk from top-level or values map
+    intended_val = body.intended_risk_pct
+    if intended_val is None:
+        try:
+            raw = body.values.get('intended_risk_pct') if body.values else None
+            if raw is not None:
+                intended_val = float(raw)
+        except Exception:
+            intended_val = None
+
     if not resp:
         resp = PlaybookResponse(
             user_id=current.id,
@@ -157,7 +167,7 @@ def upsert_trade_response(
             entry_type="trade_playbook",
             values_json=json.dumps(body.values),
             comments_json=json.dumps(body.comments) if body.comments else None,
-            intended_risk_pct=body.intended_risk_pct,
+            intended_risk_pct=intended_val,
             computed_grade=grade,
             compliance_score=compliance,
         )
@@ -165,7 +175,7 @@ def upsert_trade_response(
     else:
         resp.values_json = json.dumps(body.values)
         resp.comments_json = json.dumps(body.comments) if body.comments else None
-        resp.intended_risk_pct = body.intended_risk_pct
+        resp.intended_risk_pct = intended_val
         resp.computed_grade = grade
         resp.compliance_score = compliance
     db.commit()
@@ -186,8 +196,8 @@ def upsert_trade_response(
                     grade_cap = None
             from .models import Trade, Account, BreachEvent
             acc_cap = None
-            tr_acc = db.query(Trade.account_id, Trade.close_time_utc, Trade.open_time_utc).filter(Trade.id == trade_id).first()
-            if tr_acc and tr_acc.account_id:
+            tr_acc = db.query(Trade).filter(Trade.id == trade_id).first()
+            if tr_acc and getattr(tr_acc, 'account_id', None):
                 acc = db.query(Account).filter(Account.id == tr_acc.account_id).first()
                 acc_cap = getattr(acc, 'account_max_risk_pct', None)
             caps = [c for c in [template_max, grade_cap, acc_cap] if c is not None]
@@ -195,7 +205,7 @@ def upsert_trade_response(
                 min_cap = min(caps)
                 if float(resp.intended_risk_pct) > float(min_cap):
                     # Create breach event (scope trade)
-                    day = (tr_acc.close_time_utc or tr_acc.open_time_utc)
+                    day = (getattr(tr_acc, 'close_time_utc', None) or getattr(tr_acc, 'open_time_utc', None))
                     date_key = day.date().isoformat() if day else ''
                     details = {
                         "intended": float(resp.intended_risk_pct),
@@ -553,6 +563,16 @@ def upsert_instrument_checklist(
     elif compliance >= grade_thresholds.get('C', 0.6):
         grade = 'C'
 
+    # Infer intended risk in checklist context as well
+    intended_val = body.intended_risk_pct
+    if intended_val is None:
+        try:
+            raw = values.get('intended_risk_pct') if values else None
+            if raw is not None:
+                intended_val = float(raw)
+        except Exception:
+            intended_val = None
+
     if not match:
         match = PlaybookResponse(
             user_id=current.id,
@@ -563,7 +583,7 @@ def upsert_instrument_checklist(
             entry_type="instrument_checklist",
             values_json=json.dumps(values),
             comments_json=json.dumps(body.comments) if body.comments else None,
-            intended_risk_pct=body.intended_risk_pct,
+            intended_risk_pct=intended_val,
             computed_grade=grade,
             compliance_score=compliance,
         )
@@ -571,7 +591,7 @@ def upsert_instrument_checklist(
     else:
         match.values_json = json.dumps(values)
         match.comments_json = json.dumps(body.comments) if body.comments else None
-        match.intended_risk_pct = body.intended_risk_pct
+        match.intended_risk_pct = intended_val
         match.computed_grade = grade
         match.compliance_score = compliance
     db.commit()
