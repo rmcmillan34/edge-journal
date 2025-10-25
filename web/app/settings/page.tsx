@@ -56,11 +56,11 @@ export default function SettingsPage(){
             <input type="number" min={1} value={rules.max_losing_weeks_streak_month} onChange={e=>setRules(r=>({...r, max_losing_weeks_streak_month: parseInt(e.target.value||'0',10)||0}))} />
           </label>
           <label style={{display:'grid', gridTemplateColumns:'1fr 140px', gap:6, alignItems:'center'}}>
-            <span>Alert level</span>
+            <span>Enforcement mode</span>
             <select value={rules.enforcement_mode} onChange={e=> setRules(r=>({...r, enforcement_mode: (e.target.value as any)}))}>
-              <option value="off">Info only</option>
-              <option value="warn">Warn (no block)</option>
-              <option value="block" disabled>Block (coming later)</option>
+              <option value="off">Off (info only)</option>
+              <option value="warn">Warn (log + alert)</option>
+              <option value="block">Block (prevent)</option>
             </select>
           </label>
           <label style={{display:'grid', gridTemplateColumns:'1fr 140px', gap:6, alignItems:'center'}}>

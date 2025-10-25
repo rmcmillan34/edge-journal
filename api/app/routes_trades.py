@@ -277,7 +277,17 @@ def create_trade(body: TradeCreate, db: Session = Depends(get_db), current = Dep
         trade_key=trade_key,
         version=1,
     )
-    db.add(row); db.commit(); db.refresh(row)
+    db.add(row)
+
+    # M6 Enforcement: check loss streaks before committing trade
+    if ct and body.net_pnl is not None and body.net_pnl < 0:
+        from .enforcement import check_loss_streaks
+        breaches, warnings = check_loss_streaks(db, current.id, acct.id, ct)
+        # check_loss_streaks will raise HTTPException if enforcement_mode='block'
+        # If 'warn' mode and there are warnings, we could add them to the response
+        # For now, we'll let the user see them via the breaches API
+
+    db.commit(); db.refresh(row)
     payload = {
         "id": row.id,
         "account_name": acct.name,

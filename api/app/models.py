@@ -56,13 +56,16 @@ class Upload(Base):
 class Account(Base):
     """
     Account model for storing trading account information.
-    
+
     Attributes:
         id (int): Primary key.
         name (str): Name of the account.
         broker_label (str): Optional label for the broker.
         base_ccy (str): Optional base currency of the account.
         status (str): Status of the account, either "active" or "closed".
+        closed_at (datetime): Timestamp when account was closed.
+        close_reason (str): Reason for closure (breach/retired/merged/other).
+        close_note (str): Optional note about closure.
     """
     __tablename__ = "accounts"
     id = Column(Integer, primary_key=True)
@@ -73,6 +76,10 @@ class Account(Base):
     status = Column(String(16), nullable=False, default="active")  # active/closed
     # M5: optional per-account risk cap (% of balance or configured basis)
     account_max_risk_pct = Column(Float, nullable=True)
+    # M6: account closure tracking
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    close_reason = Column(String(32), nullable=True)  # breach/retired/merged/other
+    close_note = Column(Text, nullable=True)
 
 
 class Instrument(Base):

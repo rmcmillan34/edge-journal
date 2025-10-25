@@ -40,7 +40,7 @@ def test_commit_with_override_mapping():
     assert r.status_code == 200, r.text
     j = r.json()
     # Depending on prior tests, this may insert or update
-    assert (j["inserted"] + j["updated"]) == 1
+    assert (j["inserted_count"] + j["updated_count"]) == 1
     assert not j["errors"]
 
 
@@ -79,5 +79,5 @@ def test_commit_with_preset_name():
     r = client.post("/uploads/commit", files=files, data={"preset_name": "my-custom"}, headers=auth)
     assert r.status_code == 200, r.text
     j = r.json()
-    assert (j["inserted"] + j["updated"]) == 1
+    assert (j["inserted_count"] + j["updated_count"]) == 1
     assert not j["errors"]

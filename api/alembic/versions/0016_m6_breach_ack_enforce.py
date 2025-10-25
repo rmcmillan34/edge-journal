@@ -1,6 +1,6 @@
 """M6: add breach acknowledgements and enforcement_mode
 
-Revision ID: 0016_m6_breaches_ack_and_enforcement_mode
+Revision ID: 0016_m6_breach_ack_enforce
 Revises: 0015_accounts_risk_cap
 Create Date: 2025-10-25
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '0016_m6_breaches_ack_and_enforcement_mode'
+revision = '0016_m6_breach_ack_enforce'
 down_revision = '0015_accounts_risk_cap'
 branch_labels = None
 depends_on = None

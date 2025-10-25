@@ -23,5 +23,5 @@ def test_commit_without_account_header_uses_default_account():
     r = client.post("/uploads/commit", files=files, data={"account_name": "FTMO-25K"}, headers=auth)
     assert r.status_code == 200, r.text
     j = r.json()
-    assert (j["inserted"] + j["updated"]) == 1
+    assert (j["inserted_count"] + j["updated_count"]) == 1
     assert not j["errors"]
