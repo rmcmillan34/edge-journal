@@ -170,6 +170,57 @@ def upsert_trade_response(
         resp.compliance_score = compliance
     db.commit()
     db.refresh(resp)
+
+    # Alerting: record risk cap breach if intended_risk_pct exceeds min cap
+    try:
+        if resp.intended_risk_pct is not None:
+            # compute caps: template_max, grade schedule cap, account cap
+            template_max = tpl.template_max_risk_pct
+            grade_cap = None
+            if resp.computed_grade and tpl.risk_schedule_json:
+                try:
+                    sched = json.loads(tpl.risk_schedule_json)
+                    gc = sched.get(resp.computed_grade)
+                    grade_cap = float(gc) if gc is not None else None
+                except Exception:
+                    grade_cap = None
+            from .models import Trade, Account, BreachEvent
+            acc_cap = None
+            tr_acc = db.query(Trade.account_id, Trade.close_time_utc, Trade.open_time_utc).filter(Trade.id == trade_id).first()
+            if tr_acc and tr_acc.account_id:
+                acc = db.query(Account).filter(Account.id == tr_acc.account_id).first()
+                acc_cap = getattr(acc, 'account_max_risk_pct', None)
+            caps = [c for c in [template_max, grade_cap, acc_cap] if c is not None]
+            if caps:
+                min_cap = min(caps)
+                if float(resp.intended_risk_pct) > float(min_cap):
+                    # Create breach event (scope trade)
+                    day = (tr_acc.close_time_utc or tr_acc.open_time_utc)
+                    date_key = day.date().isoformat() if day else ''
+                    details = {
+                        "intended": float(resp.intended_risk_pct),
+                        "cap": float(min_cap),
+                        "grade": resp.computed_grade,
+                        "template_max": float(template_max) if template_max is not None else None,
+                        "grade_cap": float(grade_cap) if grade_cap is not None else None,
+                        "account_cap": float(acc_cap) if acc_cap is not None else None,
+                        "template_id": tpl.id,
+                        "response_id": resp.id,
+                        "trade_id": trade_id,
+                    }
+                    be = BreachEvent(
+                        user_id=current.id,
+                        account_id=(tr_acc.account_id if tr_acc else None),
+                        scope='trade',
+                        date_or_week=date_key or '',
+                        rule_key='risk_cap_exceeded',
+                        details_json=json.dumps(details),
+                    )
+                    db.add(be)
+                    db.commit()
+    except Exception:
+        # Best-effort; do not fail request due to logging
+        pass
     return PlaybookResponseOut(
         id=resp.id,
         template_id=resp.template_id,
@@ -525,6 +576,48 @@ def upsert_instrument_checklist(
         match.compliance_score = compliance
     db.commit()
     db.refresh(match)
+
+    # Alerting: record risk cap breach for instrument checklist (scope day)
+    try:
+        if match.intended_risk_pct is not None:
+            template_max = tpl.template_max_risk_pct
+            grade_cap = None
+            if match.computed_grade and tpl.risk_schedule_json:
+                try:
+                    sched = json.loads(tpl.risk_schedule_json)
+                    gc = sched.get(match.computed_grade)
+                    grade_cap = float(gc) if gc is not None else None
+                except Exception:
+                    grade_cap = None
+            # account cap unknown in checklist context
+            caps = [c for c in [template_max, grade_cap] if c is not None]
+            if caps:
+                min_cap = min(caps)
+                if float(match.intended_risk_pct) > float(min_cap):
+                    from .models import BreachEvent
+                    details = {
+                        "intended": float(match.intended_risk_pct),
+                        "cap": float(min_cap),
+                        "grade": match.computed_grade,
+                        "template_max": float(template_max) if template_max is not None else None,
+                        "grade_cap": float(grade_cap) if grade_cap is not None else None,
+                        "template_id": tpl.id,
+                        "response_id": match.id,
+                        "journal_id": journal.id,
+                        "symbol": symbol,
+                    }
+                    be = BreachEvent(
+                        user_id=current.id,
+                        account_id=None,
+                        scope='day',
+                        date_or_week=journal.date.isoformat(),
+                        rule_key='risk_cap_exceeded',
+                        details_json=json.dumps(details),
+                    )
+                    db.add(be)
+                    db.commit()
+    except Exception:
+        pass
     return PlaybookResponseOut(
         id=match.id,
         template_id=match.template_id,

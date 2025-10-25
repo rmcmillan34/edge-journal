@@ -280,6 +280,7 @@ class TradingRules(BaseModel):
     max_losing_days_streak_week: int
     max_losing_weeks_streak_month: int
     alerts_enabled: bool = True
+    enforcement_mode: Optional[Literal['off','warn','block']] = 'off'
 
 
 class PlaybookEvaluateIn(BaseModel):
@@ -305,3 +306,14 @@ class PlaybookEvaluateOut(BaseModel):
 class PlaybookTemplateCloneIn(BaseModel):
     name: Optional[str] = None
     purpose: Optional[Literal['pre','in','post','generic']] = None
+
+
+# --- Breach Events (M6 alerting) ---
+class BreachEventOut(BaseModel):
+    id: int
+    scope: Literal['day','week','month','trade']
+    date_or_week: str
+    rule_key: str
+    details: Optional[Dict[str, Any]] = None
+    acknowledged: Optional[bool] = None
+    created_at: Optional[str] = None

@@ -14,12 +14,13 @@ def get_trading_rules(db: Session = Depends(get_db), current: User = Depends(get
     row = db.query(UserTradingRules).filter(UserTradingRules.user_id == current.id).first()
     if not row:
         # Defaults
-        return TradingRules(max_losses_row_day=3, max_losing_days_streak_week=2, max_losing_weeks_streak_month=2, alerts_enabled=True)
+        return TradingRules(max_losses_row_day=3, max_losing_days_streak_week=2, max_losing_weeks_streak_month=2, alerts_enabled=True, enforcement_mode='off')
     return TradingRules(
         max_losses_row_day=row.max_losses_row_day,
         max_losing_days_streak_week=row.max_losing_days_streak_week,
         max_losing_weeks_streak_month=row.max_losing_weeks_streak_month,
         alerts_enabled=row.alerts_enabled,
+        enforcement_mode=row.enforcement_mode or 'off',
     )
 
 
@@ -33,6 +34,7 @@ def put_trading_rules(body: TradingRules, db: Session = Depends(get_db), current
             max_losing_days_streak_week=body.max_losing_days_streak_week,
             max_losing_weeks_streak_month=body.max_losing_weeks_streak_month,
             alerts_enabled=body.alerts_enabled,
+            enforcement_mode=body.enforcement_mode or 'off',
         )
         db.add(row)
     else:
@@ -40,6 +42,6 @@ def put_trading_rules(body: TradingRules, db: Session = Depends(get_db), current
         row.max_losing_days_streak_week = body.max_losing_days_streak_week
         row.max_losing_weeks_streak_month = body.max_losing_weeks_streak_month
         row.alerts_enabled = body.alerts_enabled
+        row.enforcement_mode = body.enforcement_mode or 'off'
     db.commit()
     return body
-
