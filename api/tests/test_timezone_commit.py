@@ -32,7 +32,7 @@ def test_commit_with_timezone_conversion():
     r = client.post("/uploads/commit", files=files, data={"account_name": "TZ-ACC", "tz": local_tz}, headers=auth)
     assert r.status_code == 200, r.text
     j = r.json()
-    assert (j["inserted"] + j["updated"]) == 1
+    assert (j["inserted_count"] + j["updated_count"]) == 1
 
     # Verify via trades list
     r2 = client.get(f"/trades?symbol={sym}", headers=auth)

@@ -397,8 +397,14 @@ async def commit_csv(
                 acct = db.query(Account).filter(Account.id == account_id, Account.user_id == current.id).first()
                 if not acct:
                     raise ValueError("Account ID not found")
+                # M6: reject trades for closed accounts
+                if acct.status == "closed":
+                    raise ValueError(f"Account '{acct.name}' is closed. Please reopen or select a different account.")
             elif account:
                 acct = _get_or_create_account(db, account, current.id)
+                # M6: reject trades for closed accounts
+                if acct and acct.status == "closed":
+                    raise ValueError(f"Account '{acct.name}' is closed. Please reopen or select a different account.")
 
             # Build a stable dedupe key using normalized values (UTC time, rounded qty/price)
             ot_utc_str = open_dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -475,9 +481,10 @@ async def commit_csv(
     return {
         "detected_preset": preset,
         "mapping": final_map,
-        "inserted": inserted,
-        "updated": updated,
-        "skipped": skipped,
+        "inserted_count": inserted,
+        "updated_count": updated,
+        "skipped_count": skipped,
+        "error_count": len(errors),
         "errors": errors[:20],
         "upload_id": upload.id,
     }

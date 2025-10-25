@@ -24,8 +24,8 @@ def test_commit_inserts_and_dedups():
     j1 = r1.json()
 
     # We may insert or update depending on DB state, but total affected rows should be 2 and no errors.
-    assert (j1["inserted"] + j1["updated"]) == 2
-    assert j1["skipped"] == 0
+    assert (j1["inserted_count"] + j1["updated_count"]) == 2
+    assert j1["skipped_count"] == 0
     assert not j1["errors"]
 
     r2 = client.post("/uploads/commit", files=files, headers=auth)
@@ -33,5 +33,5 @@ def test_commit_inserts_and_dedups():
     j2 = r2.json()
 
     # Accept either update-or-skip behavior; inserted must be 0
-    assert j2["inserted"] == 0
-    assert (j2["updated"] >= 2) or (j2["skipped"] >= 2)
+    assert j2["inserted_count"] == 0
+    assert (j2["updated_count"] >= 2) or (j2["skipped_count"] >= 2)

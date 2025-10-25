@@ -44,6 +44,7 @@ export default function JournalPage({ params }:{ params: { date: string } }){
   const [icCopyOpenFor, setIcCopyOpenFor] = useState<number | null>(null);
   const [icCopyFields, setIcCopyFields] = useState<Record<string, boolean>>({});
   const [icCopySelectEvidenceId, setIcCopySelectEvidenceId] = useState<number | "">("");
+  const [icWarn, setIcWarn] = useState<string | null>(null);
 
   useEffect(()=>{ try{ setToken(localStorage.getItem("ej_token") || ""); }catch{} }, []);
   useEffect(()=>{ if (token){ reload(); loadTrades(); loadTemplates(); loadIcTemplates(); } }, [token, d]);
@@ -138,6 +139,16 @@ export default function JournalPage({ params }:{ params: { date: string } }){
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || `Save failed: ${r.status}`);
       await loadIcExisting();
       if (j && j.id){ setIcCurrentRespId(j.id); await loadIcEvidence(j.id); }
+      // Guardrails alert: fetch day-scope breach for this date/symbol
+      try{
+        const rb = await fetch(`${API_BASE}/breaches?scope=day&start=${d}&end=${d}`, { headers: token ? { Authorization:`Bearer ${token}` } : undefined });
+        if (rb.ok){
+          const items = await rb.json();
+          const hit = (items||[]).find((b:any)=> b.rule_key==='risk_cap_exceeded' && (b.details?.symbol||'').toUpperCase() === (icSymbol||'').toUpperCase());
+          if (hit){ const det = hit.details || {}; setIcWarn(`Risk cap exceeded: intended ${det.intended}% > cap ${det.cap}% (grade ${det.grade||'?'})`); }
+          else setIcWarn(null);
+        }
+      }catch{}
       try{ (await import('../../../components/Toaster')).toast('Instrument checklist saved','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
   }
@@ -377,6 +388,11 @@ export default function JournalPage({ params }:{ params: { date: string } }){
     <React.Fragment>
     <main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
       <h1>Daily Journal — {d}</h1>
+      {icWarn && (
+        <div className="notice" style={{margin:'8px 0', padding:'8px 12px', border:'1px solid #fde68a', background:'#fffbeb', color:'#92400e', borderRadius:8}}>
+          ⚠︎ {icWarn}
+        </div>
+      )}
       <div style={{marginBottom:8}}><a href="/dashboard">Back to Dashboard</a></div>
       {error && <p style={{color:'crimson'}}>{error}</p>}
       <div style={{display:'grid', gridTemplateColumns:'1fr', gap:8}}>

@@ -81,6 +81,7 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
   const [pbEvidenceField, setPbEvidenceField] = useState<string>("");
   const [pbEvidenceUrl, setPbEvidenceUrl] = useState<string>("");
   const [pbEvidenceNote, setPbEvidenceNote] = useState<string>("");
+  const [pbWarn, setPbWarn] = useState<string | null>(null);
   const [pbJournalDate, setPbJournalDate] = useState<string>("");
   const [pbJournalAtts, setPbJournalAtts] = useState<any[]>([]);
   const [pbCopySelectEvidenceId, setPbCopySelectEvidenceId] = useState<number | "">("");
@@ -256,6 +257,17 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
       // set current response to the one just saved (may be updated or new)
       const newId = j?.id; if (newId){ setPbCurrentRespId(newId); await loadEvidence(newId); }
       setPbEval(null);
+      // Guardrails alert: check for risk cap breach for this trade
+      try{
+        const day = (data?.close_time_utc || data?.open_time_utc || '').slice(0,10);
+        const rb = await fetch(`${API_BASE}/breaches?scope=trade${day?`&start=${day}&end=${day}`:''}`, { headers: token ? { Authorization:`Bearer ${token}` } : undefined });
+        if (rb.ok){
+          const items = await rb.json();
+          const hit = (items||[]).find((b:any)=> b.rule_key==='risk_cap_exceeded' && (b.details?.trade_id === Number(params.id)));
+          if (hit){ const d = hit.details || {}; setPbWarn(`Risk cap exceeded: intended ${d.intended}% > cap ${d.cap}% (grade ${d.grade||'?'})`); }
+          else setPbWarn(null);
+        }
+      }catch{}
       try{ (await import('../../../components/Toaster')).toast('Playbook saved','success'); }catch{}
     }catch(e:any){ setError(e.message || String(e)); }
     finally{ setPbSaving(false); }
@@ -397,6 +409,11 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
   // Return the page directly to avoid any parser quirks around JSX-in-assignment
   return (<main style={{maxWidth: 1000, margin:'2rem auto', fontFamily:'system-ui,sans-serif'}}>
       <h1>Trade # {params.id}</h1>
+      {pbWarn && (
+        <div className="notice" style={{margin:'8px 0', padding:'8px 12px', border:'1px solid #fde68a', background:'#fffbeb', color:'#92400e', borderRadius:8}}>
+          ⚠︎ {pbWarn}
+        </div>
+      )}
       {error && <p style={{color:'crimson'}}>{error}</p>}
       {!data ? <p>Loading…</p> : (
         <div>

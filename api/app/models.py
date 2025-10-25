@@ -56,13 +56,16 @@ class Upload(Base):
 class Account(Base):
     """
     Account model for storing trading account information.
-    
+
     Attributes:
         id (int): Primary key.
         name (str): Name of the account.
         broker_label (str): Optional label for the broker.
         base_ccy (str): Optional base currency of the account.
         status (str): Status of the account, either "active" or "closed".
+        closed_at (datetime): Timestamp when account was closed.
+        close_reason (str): Reason for closure (breach/retired/merged/other).
+        close_note (str): Optional note about closure.
     """
     __tablename__ = "accounts"
     id = Column(Integer, primary_key=True)
@@ -73,6 +76,10 @@ class Account(Base):
     status = Column(String(16), nullable=False, default="active")  # active/closed
     # M5: optional per-account risk cap (% of balance or configured basis)
     account_max_risk_pct = Column(Float, nullable=True)
+    # M6: account closure tracking
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    close_reason = Column(String(32), nullable=True)  # breach/retired/merged/other
+    close_note = Column(Text, nullable=True)
 
 
 class Instrument(Base):
@@ -268,6 +275,7 @@ class UserTradingRules(Base):
     max_losing_days_streak_week = Column(Integer, nullable=False, default=2)
     max_losing_weeks_streak_month = Column(Integer, nullable=False, default=2)
     alerts_enabled = Column(Boolean, nullable=False, default=True)
+    enforcement_mode = Column(String(8), nullable=False, default='off')  # 'off'|'warn'|'block'
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -280,4 +288,7 @@ class BreachEvent(Base):
     date_or_week = Column(String(16), nullable=False)
     rule_key = Column(String(48), nullable=False)
     details_json = Column(Text, nullable=True)
+    acknowledged = Column(Boolean, nullable=False, default=False)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    acknowledged_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

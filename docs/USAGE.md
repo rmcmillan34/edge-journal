@@ -127,3 +127,17 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 - When applying a template, use the “Insert” button to insert at cursor.
 - After upload or delete actions, the UI will refresh and show toasts for success/error.
 - For large attachment sets, use multi‑select + ZIP to download in one go.
+
+## Upgrading
+
+- For local development, run `docker compose up --build`. The API runs Alembic migrations automatically on startup.
+- For production or managed environments, run `alembic upgrade head` against the API database before deploying a new version.
+
+### Playbooks v1 (M5)
+
+Version v0.5.x introduces Playbooks v1:
+- New tables: `playbook_templates`, `playbook_responses`, `playbook_evidence_links`, `user_trading_rules`; optional `breach_events`. `accounts` gains `account_max_risk_pct`.
+- New endpoints: `/playbooks/*` for templates, evaluation, responses, and evidence; `/settings/trading-rules`; `/metrics/calendar` returns `breaches` per day.
+- Web: Playbooks UI at `/playbooks`; Playbook panel on Trade details; Instrument Checklist on Daily Journal.
+
+Fonts: If you want to self‑host Nerd Fonts, place TTFs under `web/public/fonts/` and add preload links in `web/app/layout.tsx`. By default, the app uses locally installed fonts and avoids network font fetches to keep dev logs clean.

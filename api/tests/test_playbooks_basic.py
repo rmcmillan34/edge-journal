@@ -112,3 +112,100 @@ def test_calendar_breaches_endpoint():
     assert "days" in j
     assert isinstance(j["days"], list)
 
+
+def test_playbook_evidence_crud_for_trade():
+    auth = auth_headers()
+
+    # Create playbook template
+    tpl_body = {
+        "name": "PB-Evidence",
+        "purpose": "post",
+        "schema": [
+            {"key": "setup_ok", "label": "Setup OK", "type": "boolean", "required": True, "weight": 1},
+            {"key": "link_field", "label": "Link Field", "type": "text", "required": False, "weight": 1},
+        ],
+        "template_max_risk_pct": 1.0,
+    }
+    r_tpl = client.post("/playbooks/templates", json=tpl_body, headers=auth)
+    assert r_tpl.status_code == 200, r_tpl.text
+    tpl = r_tpl.json()
+
+    # Create a trade
+    now = datetime.utcnow()
+    t_body = {
+        "symbol": "EV",
+        "side": "Buy",
+        "open_time": now.isoformat() + "Z",
+        "qty_units": 1,
+        "entry_price": 10.0,
+        "net_pnl": 0.5,
+    }
+    r_trade = client.post("/trades", json=t_body, headers=auth)
+    assert r_trade.status_code == 201, r_trade.text
+    trade_id = r_trade.json()["id"]
+
+    # Save a response to attach evidence to
+    resp_body = {"template_id": tpl["id"], "values": {"setup_ok": True, "link_field": "ref"}}
+    r_resp = client.post(f"/trades/{trade_id}/playbook-responses", json=resp_body, headers=auth)
+    assert r_resp.status_code == 200, r_resp.text
+    resp_id = r_resp.json()["id"]
+
+    # Add URL evidence
+    ev_body = {"field_key": "link_field", "source_kind": "url", "url": "https://example.com", "note": "proof"}
+    r_ev = client.post(f"/playbook-responses/{resp_id}/evidence", json=ev_body, headers=auth)
+    assert r_ev.status_code == 200, r_ev.text
+    ev = r_ev.json()
+    assert ev["field_key"] == "link_field"
+
+    # List evidence
+    r_list = client.get(f"/playbook-responses/{resp_id}/evidence", headers=auth)
+    assert r_list.status_code == 200
+    items = r_list.json()
+    assert len(items) >= 1
+
+    # Delete evidence
+    r_del = client.delete(f"/playbook-responses/{resp_id}/evidence/{ev['id']}", headers=auth)
+    assert r_del.status_code == 200, r_del.text
+    r_list2 = client.get(f"/playbook-responses/{resp_id}/evidence", headers=auth)
+    assert r_list2.status_code == 200
+    items2 = r_list2.json()
+    assert all(i["id"] != ev["id"] for i in items2)
+
+
+def test_instrument_checklist_crud_in_journal():
+    auth = auth_headers()
+
+    # Create a pre-trade playbook
+    tpl_body = {
+        "name": "PB-Pre",
+        "purpose": "pre",
+        "schema": [
+            {"key": "symbol", "label": "Symbol", "type": "text", "required": True, "weight": 1},
+            {"key": "ready", "label": "Ready", "type": "boolean", "required": True, "weight": 1},
+        ],
+    }
+    r_tpl = client.post("/playbooks/templates", json=tpl_body, headers=auth)
+    assert r_tpl.status_code == 200, r_tpl.text
+    tpl = r_tpl.json()
+
+    # Ensure a journal exists for today
+    today = datetime.utcnow().date().isoformat()
+    client.put(f"/journal/{today}", json={"title": "Test", "notes_md": ""}, headers=auth)
+
+    # Upsert checklist for symbol
+    body = {"template_id": tpl["id"], "values": {"symbol": "EURUSD", "ready": True}}
+    r_up = client.post(f"/journal/{today}/instrument/EURUSD/playbook-response", json=body, headers=auth)
+    assert r_up.status_code == 200, r_up.text
+    resp = r_up.json()
+    assert resp["template_id"] == tpl["id"]
+
+    # Get latest for symbol
+    r_get = client.get(f"/journal/{today}/instrument/EURUSD/playbook-response", headers=auth)
+    assert r_get.status_code == 200, r_get.text
+    got = r_get.json()
+    assert got and got["values"].get("symbol") == "EURUSD"
+
+    # List all for date/symbol
+    r_list = client.get(f"/journal/{today}/instrument/EURUSD/playbook-responses", headers=auth)
+    assert r_list.status_code == 200
+    assert isinstance(r_list.json(), list)

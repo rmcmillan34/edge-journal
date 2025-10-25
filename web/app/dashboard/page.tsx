@@ -42,10 +42,11 @@ export default function Dashboard(){
   const [rulesModalOpen, setRulesModalOpen] = useState<boolean>(false);
   const [rules, setRules] = useState({ max_losses_row_day: 3, max_losing_days_streak_week: 2, max_losing_weeks_streak_month: 2, alerts_enabled: true });
   const [acctCaps, setAcctCaps] = useState<{ id:number; name:string; account_max_risk_pct?: number|null }[]>([]);
-  const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>(()=>{
-    try{ return (localStorage.getItem('dash_week_start') as any) || 'Mon'; }catch{ return 'Mon'; }
-  });
-  const [hideWeekends, setHideWeekends] = useState<boolean>(()=>{ try{ return localStorage.getItem('dash_hide_weekends') === '1'; }catch{ return false; } });
+  const [breaches, setBreaches] = useState<any[]>([]);
+  // Initialize with server-safe defaults to avoid hydration mismatches;
+  // read user preferences from localStorage after mount in an effect.
+  const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>('Mon');
+  const [hideWeekends, setHideWeekends] = useState<boolean>(false);
 
   useEffect(() => { try {
     // hydrate client-only state to avoid hydration mismatches
@@ -55,12 +56,16 @@ export default function Dashboard(){
     const s = localStorage.getItem('dash_symbol') || '';
     const a = localStorage.getItem('dash_account') || '';
     const ym = localStorage.getItem('dash_month_anchor') || '';
+    const ws = localStorage.getItem('dash_week_start');
+    const hw = localStorage.getItem('dash_hide_weekends');
     if (s) setSymbol(s);
     if (a) setAccount(a);
     if (ym){
       const [y,m] = ym.split('-').map(x=>parseInt(x,10));
       if (!Number.isNaN(y) && !Number.isNaN(m)) setMonthAnchor(new Date(y, m-1, 1));
     }
+    if (ws === 'Sun' || ws === 'Mon') setWeekStart(ws as 'Mon'|'Sun');
+    if (hw === '1' || hw === '0') setHideWeekends(hw === '1');
   } catch{} }, []);
   useEffect(() => { if (token) load(); }, [token, monthAnchor, symbol, account, displayTz]);
   useEffect(() => {
@@ -147,6 +152,11 @@ export default function Dashboard(){
       try{
         const rc = await fetchJson(`${API_BASE}/metrics/calendar?start=${fmtYmd(start)}&end=${fmtYmd(end)}${displayTz?`&tz=${encodeURIComponent(displayTz)}`:''}`, 2, 300);
         if (rc.ok && rc.json && Array.isArray(rc.json.days)) setCalendarDays(rc.json.days);
+      }catch{}
+      try{
+        // Load breaches for the current month for guardrails panel
+        const rb = await fetchJson(`${API_BASE}/breaches?start=${fmtYmd(start)}&end=${fmtYmd(end)}`);
+        if (rb.ok) setBreaches(Array.isArray(rb.json)? rb.json : []);
       }catch{}
     }catch(e:any){ setError(e.message || 'Failed to load metrics'); }
     finally{ setLoading(false); }
@@ -320,6 +330,43 @@ export default function Dashboard(){
 
       <h2 style={{marginTop:16}}>Calendar (Current Month)</h2>
       <Calendar monthAnchor={monthAnchor} setMonthAnchor={(d:Date)=>{ setMonthAnchor(d); try{ localStorage.setItem('dash_month_anchor', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);}catch{} }} daily={(calendarDays||[]).map(d=>({date:d.date, pnl:d.net_pnl}))} breachesMap={Object.fromEntries((calendarDays||[]).map(d=>[d.date, d.breaches||[]]))} loading={loading} journalDates={journalDates} hideWeekends={hideWeekends} weekStart={weekStart} />
+
+      <div style={{display:'flex', alignItems:'center', gap:8, marginTop:16}}>
+        <h2 style={{margin:0}}>Guardrails</h2>
+        <a style={{marginLeft:'auto'}} href={`/guardrails?start=${monthAnchor.getFullYear()}-${String(monthAnchor.getMonth()+1).padStart(2,'0')}-01&end=${new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0).toISOString().slice(0,10)}`}>View all</a>
+      </div>
+      {!breaches.length ? (
+        <p style={{color:'#64748b'}}>{loading ? 'Loading…' : 'No breaches this period'}</p>
+      ) : (
+        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:8}}>
+          {breaches.slice(0,50).map((b:any)=>{
+            const d = b.details || {}; const label = b.rule_key;
+            const summary = label === 'risk_cap_exceeded'
+              ? `Intended ${d.intended ?? '?'}% > Cap ${d.cap ?? '?'}% (grade ${d.grade ?? '?'})`
+              : JSON.stringify(d);
+            return (
+              <div key={b.id} className="notice" style={{display:'flex', alignItems:'center', gap:8, padding:'8px 12px', border:'1px solid #e5e7eb', borderRadius:8}}>
+                <div style={{fontWeight:600}}>{b.date_or_week}</div>
+                <div style={{fontSize:12, color:'#64748b'}}>{b.scope}</div>
+                <div style={{marginLeft:8}}>{label}</div>
+                <div style={{marginLeft:8, color:'#475569'}}>{summary}</div>
+                <div style={{marginLeft:'auto'}}>
+                  {!b.acknowledged ? (
+                    <button onClick={async ()=>{
+                      try{
+                        const r = await fetch(`${API_BASE}/breaches/${b.id}/ack`, { method:'POST', headers: token ? { Authorization:`Bearer ${token}` } : undefined });
+                        if (r.ok){ setBreaches(prev => prev.map(x=> x.id===b.id ? { ...x, acknowledged:true } : x)); }
+                      }catch{}
+                    }}>Acknowledge</button>
+                  ) : (
+                    <span style={{fontSize:12, color:'#16a34a'}}>Acknowledged</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </main>
   );
 }
@@ -413,10 +460,10 @@ function Calendar({ monthAnchor, setMonthAnchor, daily, breachesMap, loading, jo
               {attCount > 0 && <span title={`${attCount} attachment(s)`} style={{display:'inline-block', marginLeft:4, padding:'0 6px', borderRadius:9999, background:'#0ea5e9', color:'#fff', fontSize:10}}>×{attCount}</span>}
               {!!breaches.length && (
                 <span style={{display:'inline-flex', gap:4, marginLeft:6}}>
-                  {breaches.includes('loss_streak_day') && <span title={breachLabels.loss_streak_day} aria-label={breachLabels.loss_streak_day}>⚠️</span>}
-                  {breaches.includes('losing_days_week') && <span title={breachLabels.losing_days_week} aria-label={breachLabels.losing_days_week}>🟨</span>}
-                  {breaches.includes('losing_weeks_month') && <span title={breachLabels.losing_weeks_month} aria-label={breachLabels.losing_weeks_month}>🟧</span>}
-                  {breaches.includes('risk_cap_exceeded') && <span title={breachLabels.risk_cap_exceeded} aria-label={breachLabels.risk_cap_exceeded}>⛔</span>}
+                  {breaches.includes('loss_streak_day') && <a href={`/guardrails?start=${ymd}&end=${ymd}`} onClick={e=>e.stopPropagation()} title={breachLabels.loss_streak_day} aria-label={breachLabels.loss_streak_day} style={{textDecoration:'none'}}>⚠️</a>}
+                  {breaches.includes('losing_days_week') && <a href={`/guardrails?start=${ymd}&end=${ymd}`} onClick={e=>e.stopPropagation()} title={breachLabels.losing_days_week} aria-label={breachLabels.losing_days_week} style={{textDecoration:'none'}}>🟨</a>}
+                  {breaches.includes('losing_weeks_month') && <a href={`/guardrails?start=${ymd}&end=${ymd}`} onClick={e=>e.stopPropagation()} title={breachLabels.losing_weeks_month} aria-label={breachLabels.losing_weeks_month} style={{textDecoration:'none'}}>🟧</a>}
+                  {breaches.includes('risk_cap_exceeded') && <a href={`/guardrails?start=${ymd}&end=${ymd}`} onClick={e=>e.stopPropagation()} title={breachLabels.risk_cap_exceeded} aria-label={breachLabels.risk_cap_exceeded} style={{textDecoration:'none'}}>⛔</a>}
                 </span>
               )}
             </div>

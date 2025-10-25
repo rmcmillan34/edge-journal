@@ -2,6 +2,11 @@ from pydantic import BaseModel, EmailStr, Field, RootModel
 from pydantic import ConfigDict
 from typing import Dict, List, Optional
 from typing import Any, Literal
+import warnings
+
+# Suppress Pydantic warnings about 'schema' field shadowing BaseModel attribute
+# This is intentional - we use 'schema' to describe playbook field definitions
+warnings.filterwarnings('ignore', message='Field name "schema".*shadows an attribute', category=UserWarning)
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -50,6 +55,9 @@ class AccountOut(BaseModel):
     base_ccy: Optional[str] = None
     status: str
     account_max_risk_pct: Optional[float] = None
+    closed_at: Optional[str] = None
+    close_reason: Optional[str] = None
+    close_note: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -60,6 +68,18 @@ class AccountUpdate(BaseModel):
     base_ccy: Optional[str] = None
     status: Optional[str] = None
     account_max_risk_pct: Optional[float] = None
+    closed_at: Optional[str] = None
+    close_reason: Optional[str] = None
+    close_note: Optional[str] = None
+
+
+class AccountClose(BaseModel):
+    reason: Literal['breach', 'retired', 'merged', 'other'] = 'other'
+    note: Optional[str] = None
+
+
+class AccountReopen(BaseModel):
+    note: Optional[str] = None
 
 
 class TradeOut(BaseModel):
@@ -256,6 +276,7 @@ class PlaybookResponseOut(BaseModel):
     intended_risk_pct: Optional[float] = None
     created_at: Optional[str] = None
     template_meta: Optional[PlaybookTemplateMeta] = None
+    warning: Optional[str] = None  # M6: enforcement mode warnings
 
 
 class EvidenceCreate(BaseModel):
@@ -280,6 +301,7 @@ class TradingRules(BaseModel):
     max_losing_days_streak_week: int
     max_losing_weeks_streak_month: int
     alerts_enabled: bool = True
+    enforcement_mode: Optional[Literal['off','warn','block']] = 'off'
 
 
 class PlaybookEvaluateIn(BaseModel):
@@ -305,3 +327,14 @@ class PlaybookEvaluateOut(BaseModel):
 class PlaybookTemplateCloneIn(BaseModel):
     name: Optional[str] = None
     purpose: Optional[Literal['pre','in','post','generic']] = None
+
+
+# --- Breach Events (M6 alerting) ---
+class BreachEventOut(BaseModel):
+    id: int
+    scope: Literal['day','week','month','trade']
+    date_or_week: str
+    rule_key: str
+    details: Optional[Dict[str, Any]] = None
+    acknowledged: Optional[bool] = None
+    created_at: Optional[str] = None

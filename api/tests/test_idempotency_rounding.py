@@ -28,10 +28,10 @@ def test_reupload_with_small_float_diffs_dedupes():
     r1 = client.post("/uploads/commit", files={"file": ("a.csv", data1, "text/csv")}, headers=auth)
     assert r1.status_code == 200, r1.text
     j1 = r1.json()
-    assert (j1["inserted"] + j1["updated"]) == 1
+    assert (j1["inserted_count"] + j1["updated_count"]) == 1
 
     r2 = client.post("/uploads/commit", files={"file": ("b.csv", data2, "text/csv")}, headers=auth)
     assert r2.status_code == 200, r2.text
     j2 = r2.json()
-    assert j2["inserted"] == 0
-    assert (j2["updated"] >= 1) or (j2["skipped"] >= 1)
+    assert j2["inserted_count"] == 0
+    assert (j2["updated_count"] >= 1) or (j2["skipped_count"] >= 1)

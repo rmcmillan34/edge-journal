@@ -25,5 +25,5 @@ def test_ftmo_like_headers_with_duplicate_price_columns_commit_with_fallback_acc
     r = client.post("/uploads/commit", files=files, data={"account_name": "FTMO-25K"}, headers=auth)
     assert r.status_code == 200, r.text
     j = r.json()
-    assert (j["inserted"] + j["updated"]) == 1
+    assert (j["inserted_count"] + j["updated_count"]) == 1
     assert not j["errors"]
