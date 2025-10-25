@@ -42,10 +42,10 @@ export default function Dashboard(){
   const [rulesModalOpen, setRulesModalOpen] = useState<boolean>(false);
   const [rules, setRules] = useState({ max_losses_row_day: 3, max_losing_days_streak_week: 2, max_losing_weeks_streak_month: 2, alerts_enabled: true });
   const [acctCaps, setAcctCaps] = useState<{ id:number; name:string; account_max_risk_pct?: number|null }[]>([]);
-  const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>(()=>{
-    try{ return (localStorage.getItem('dash_week_start') as any) || 'Mon'; }catch{ return 'Mon'; }
-  });
-  const [hideWeekends, setHideWeekends] = useState<boolean>(()=>{ try{ return localStorage.getItem('dash_hide_weekends') === '1'; }catch{ return false; } });
+  // Initialize with server-safe defaults to avoid hydration mismatches;
+  // read user preferences from localStorage after mount in an effect.
+  const [weekStart, setWeekStart] = useState<'Mon'|'Sun'>('Mon');
+  const [hideWeekends, setHideWeekends] = useState<boolean>(false);
 
   useEffect(() => { try {
     // hydrate client-only state to avoid hydration mismatches
@@ -55,12 +55,16 @@ export default function Dashboard(){
     const s = localStorage.getItem('dash_symbol') || '';
     const a = localStorage.getItem('dash_account') || '';
     const ym = localStorage.getItem('dash_month_anchor') || '';
+    const ws = localStorage.getItem('dash_week_start');
+    const hw = localStorage.getItem('dash_hide_weekends');
     if (s) setSymbol(s);
     if (a) setAccount(a);
     if (ym){
       const [y,m] = ym.split('-').map(x=>parseInt(x,10));
       if (!Number.isNaN(y) && !Number.isNaN(m)) setMonthAnchor(new Date(y, m-1, 1));
     }
+    if (ws === 'Sun' || ws === 'Mon') setWeekStart(ws as 'Mon'|'Sun');
+    if (hw === '1' || hw === '0') setHideWeekends(hw === '1');
   } catch{} }, []);
   useEffect(() => { if (token) load(); }, [token, monthAnchor, symbol, account, displayTz]);
   useEffect(() => {

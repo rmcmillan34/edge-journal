@@ -11,3 +11,4 @@ pytest.cache/
 *.pyo
 .DS_Store
 api/dev.db
+results*.txt

@@ -25,6 +25,7 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
     <html lang='en'>
       <head>
         <script dangerouslySetInnerHTML={{__html:`(function(){try{var s=localStorage.getItem('ej_theme');var d=(s==='dark')||(!s&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){document.documentElement.classList.add('dark');}})();`}} />
+        {/* Preload bundled fonts if present under /public/fonts */}
         <link rel="preload" as="font" type="font/ttf" href="/fonts/IosevkaNerdFont-Regular.ttf" crossOrigin="anonymous" />
         <link rel="preload" as="font" type="font/ttf" href="/fonts/IosevkaNerdFont-Bold.ttf" crossOrigin="anonymous" />
         <style dangerouslySetInnerHTML={{__html: `
@@ -38,6 +39,7 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
             --ctp-base:#1e1e2e; --ctp-mantle:#181825; --ctp-crust:#11111b;
           }
           /* Prefer locally installed Nerd Fonts if present */
+          /* Use bundled fonts if available, otherwise local fallbacks */
           @font-face { font-family: 'Iosevka Nerd Font'; src: local('Iosevka Nerd Font'), local('Iosevka NF'), url('/fonts/IosevkaNerdFont-Regular.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
           @font-face { font-family: 'FiraCode Nerd Font'; src: local('FiraCode Nerd Font'), local('Fira Code Nerd Font'), local('FiraCode NF'); font-weight: 300 700; font-style: normal; font-display: swap; }
           @font-face { font-family: 'CaskaydiaCove Nerd Font'; src: local('CaskaydiaCove Nerd Font'), local('Cascadia Code NF'), local('CaskaydiaCove NF'); font-weight: 300 700; font-style: normal; font-display: swap; }

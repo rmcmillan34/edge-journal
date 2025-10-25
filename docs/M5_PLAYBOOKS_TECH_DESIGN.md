@@ -1,8 +1,8 @@
 # Milestone 5 — Playbooks v1: Technical Design & Migrations Outline
 
-Status: Proposal (for review)
+Status: Implemented (v0.5.x)
 Owner: Edge-Journal
-Updated: 21 Oct 2025
+Updated: 21 Oct 2025; revised: 25 Oct 2025
 
 ## 1) Overview
 Playbooks v1 introduces schema-driven, versioned checklists/forms that attach to trades and can be used as an instrument checklist inside the Daily Journal. Users configure required rules, weights, and max risk. The system computes compliance and a grade (A/B/C/D), displays a risk cap, and supports field-level evidence links (trade/journal attachments or URLs). Calendar badges highlight rule breaches. Enforcement of caps/guardrails is deferred to M6.
@@ -292,4 +292,3 @@ def downgrade():
 
 ## 13) Open Points (tracked)
 - None blocking; defaults and manual linking behavior agreed.
-
