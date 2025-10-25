@@ -98,6 +98,8 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
             <a href="/trades">Trades</a>
             <a href="/playbooks">Playbooks</a>
             <a href="/templates">Templates</a>
+            <a href="/guardrails">Guardrails</a>
+            <a href="/settings">Settings</a>
           </div>
           <div style={{display:'flex', alignItems:'center', gap:8}}>
             <button onClick={()=> setTheme(t => t==='dark' ? 'light' : 'dark')} title="Toggle theme" aria-label="Toggle theme">
