@@ -39,6 +39,8 @@ def list_trades(
     start: Optional[str] = Query(None, description="YYYY-MM-DD inclusive"),
     end: Optional[str] = Query(None, description="YYYY-MM-DD inclusive"),
     sort: Optional[str] = Query(None, description="Sort by field, e.g., open_time_utc:desc, net_pnl:asc, symbol:asc"),
+    filters: Optional[str] = Query(None, description="Filter DSL JSON string"),
+    view: Optional[str] = Query(None, description="Saved view ID or name"),
 ):
     q = db.query(
         Trade.id,
@@ -55,26 +57,64 @@ def list_trades(
     ).outerjoin(Account, Account.id == Trade.account_id).outerjoin(Instrument, Instrument.id == Trade.instrument_id)
     q = q.filter(Account.user_id == current.id)
 
-    if symbol:
-        q = q.filter(Instrument.symbol.ilike(f"%{symbol}%"))
-    if account:
-        q = q.filter(Account.name.ilike(f"%{account}%"))
+    # Apply filters: Priority: view > filters > legacy params
+    if view:
+        # Load saved view by ID or name
+        from .models import SavedView
+        saved_view = None
 
-    # Optional date filters (on open_time_utc)
-    def parse_date(d: str) -> datetime:
-        return datetime.strptime(d, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    if start:
+        # Try as integer ID first
         try:
-            start_dt = parse_date(start)
-            q = q.filter(Trade.open_time_utc >= start_dt)
-        except Exception:
+            view_id = int(view)
+            saved_view = db.query(SavedView).filter(
+                SavedView.id == view_id,
+                SavedView.user_id == current.id
+            ).first()
+        except ValueError:
             pass
-    if end:
+
+        # Try by name if not found
+        if not saved_view:
+            saved_view = db.query(SavedView).filter(
+                SavedView.name.ilike(view),
+                SavedView.user_id == current.id
+            ).first()
+
+        if not saved_view:
+            raise HTTPException(404, detail=f"View '{view}' not found")
+
+        # Apply saved view filters
         try:
-            end_dt = parse_date(end) + timedelta(days=1)  # exclusive next day
-            q = q.filter(Trade.open_time_utc < end_dt)
-        except Exception:
-            pass
+            from .filters import FilterCompiler
+            filter_dsl = json.loads(saved_view.filters_json)
+            compiler = FilterCompiler(user_id=current.id)
+            q = compiler.compile(filter_dsl, q)
+        except Exception as e:
+            raise HTTPException(400, detail=f"Failed to apply view filters: {str(e)}")
+
+    elif filters:
+        # Parse filter DSL JSON
+        try:
+            from .filters import FilterCompiler
+            filter_dsl = json.loads(filters)
+            compiler = FilterCompiler(user_id=current.id)
+            q = compiler.compile(filter_dsl, q)
+        except json.JSONDecodeError:
+            raise HTTPException(400, detail="Invalid filter JSON")
+        except ValueError as e:
+            raise HTTPException(400, detail=str(e))
+    elif symbol or account or start or end:
+        # Backward compatibility: convert legacy query params to filter DSL
+        from .filters import legacy_params_to_filter_dsl, FilterCompiler
+        filter_dsl = legacy_params_to_filter_dsl(
+            symbol=symbol,
+            account=account,
+            start=start,
+            end=end
+        )
+        if filter_dsl:
+            compiler = FilterCompiler(user_id=current.id)
+            q = compiler.compile(filter_dsl, q)
 
     # Sorting
     sort_expr = Trade.open_time_utc.desc()

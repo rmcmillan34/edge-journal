@@ -43,11 +43,150 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 #### Trade attachments
 - Upload images (PNG/JPG/JPEG/WebP) and PDFs. The server strips EXIF and generates thumbnails for images.
 - Optional metadata per attachment: timeframe, state, view, caption, reviewed.
-- Reorder: toggle “Reorder”, then drag cards; press Esc to exit reorder mode.
+- Reorder: toggle "Reorder", then drag cards; press Esc to exit reorder mode.
 - Multi‑select: use checkboxes to select attachments and then:
-  - “Delete Selected” — removes files and DB rows.
-  - “Download Selected” — downloads a ZIP file of the chosen attachments.
-- Inline edit: click “Edit” on a card to change metadata inline, then Save.
+  - "Delete Selected" — removes files and DB rows.
+  - "Download Selected" — downloads a ZIP file of the chosen attachments.
+- Inline edit: click "Edit" on a card to change metadata inline, then Save.
+
+### Saved Views
+
+Save and recall filter combinations with meaningful names for quick access to common trade queries.
+
+#### Saving a View
+
+1. Navigate to `/trades`
+2. Build your filter using the Filter Builder:
+   - Add conditions (e.g., Symbol contains EUR, P&L > 0)
+   - Optionally add nested AND/OR groups for complex queries
+   - Click "Apply Filters"
+3. Click **"💾 Save as View"** button
+4. In the modal:
+   - **Name**: Enter a descriptive name (e.g., "EUR Winners", "London A-Setups")
+   - **Description** (optional): Add context about this view
+   - **Set as default**: Check to auto-load this view on Trades page visits
+5. Click **"Save View"**
+
+#### Using Saved Views
+
+**Quick Selection:**
+- Use the "Saved View" dropdown at the top of the Trades page
+- Select a view from the list to automatically apply its filters
+- Default view (marked with ⭐) loads automatically when visiting `/trades`
+- Select "No view (show all)" to clear the view and show unfiltered trades
+
+**URL Sharing:**
+- Share filtered views via URL: `/trades?view=EUR%20Winners`
+- View names are case-insensitive for URL matching
+- Recipients need an account and must be logged in to access views
+- Each user's views are private and isolated
+
+**Default View:**
+- One view can be set as default per user
+- Default view loads automatically when visiting `/trades` without a view parameter
+- Override by selecting a different view from the dropdown or using a URL parameter
+
+#### Managing Views
+
+Navigate to **Settings → Saved Views** (`/settings/views`) to manage your saved views:
+
+**View List:**
+- Displays all your saved views with name, description, and default status
+- Views are ordered with default view first, then by creation date
+
+**Actions:**
+- **Set Default**: Make this view load automatically (unsets any previous default)
+- **Delete**: Remove view with confirmation (cannot be undone)
+
+**Constraints:**
+- View names must be unique per user
+- Only one default view allowed per user
+- Views are automatically deleted if the user account is deleted
+
+#### API Usage
+
+**List Views:**
+```bash
+GET /views
+Authorization: Bearer <token>
+
+Response:
+[
+  {
+    "id": 1,
+    "name": "EUR Winners",
+    "description": "Profitable EUR pairs",
+    "filters_json": "{\"operator\":\"AND\",\"conditions\":[...]}",
+    "is_default": true,
+    "created_at": "2025-10-25T10:00:00Z",
+    "updated_at": "2025-10-25T10:00:00Z"
+  }
+]
+```
+
+**Create View:**
+```bash
+POST /views
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "London A-Setups",
+  "description": "A-grade trades during London session",
+  "filters_json": "{\"operator\":\"AND\",\"conditions\":[...]}",
+  "is_default": false
+}
+```
+
+**Get View by ID:**
+```bash
+GET /views/{view_id}
+Authorization: Bearer <token>
+```
+
+**Get View by Name:**
+```bash
+GET /views/by-name/{view_name}
+Authorization: Bearer <token>
+```
+
+**Apply View to Trades:**
+```bash
+# By ID
+GET /trades?view=1
+
+# By name (case-insensitive)
+GET /trades?view=London%20A-Setups
+GET /trades?view=london%20a-setups  # also works
+```
+
+**Update View:**
+```bash
+PATCH /views/{view_id}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Updated Name",
+  "description": "Updated description",
+  "is_default": true
+}
+```
+
+**Delete View:**
+```bash
+DELETE /views/{view_id}
+Authorization: Bearer <token>
+```
+
+#### Tips & Best Practices
+
+- **Naming**: Use descriptive names like "Profitable EUR/USD" instead of "View 1" for better organization
+- **Default View**: Set your most frequently used filter as default to save time on each visit
+- **URL Sharing**: Great for sharing analysis with team members or bookmarking common queries (requires accounts)
+- **Complex Filters**: Combine saved views with additional sorting and pagination parameters
+- **Backup**: Views are stored in the database; filters are preserved as JSON for portability
+- **Refresh**: If a view doesn't load correctly, refresh the page and try selecting it again
 
 ### Daily Journal
 - Visit `/journal/YYYY-MM-DD` for that day’s entry. Set a title and write Markdown notes.
@@ -81,7 +220,7 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 - `GET /metrics?start=&end=&symbol=&account=&tz=` → KPIs, equity, and `unreviewed_count`
 
 ### Trades
-- `GET /trades` — list with filters; `GET /trades/{id}` — detail with attachments
+- `GET /trades` — list with filters and optional `?view=<id|name>` parameter; `GET /trades/{id}` — detail with attachments
 - `POST /trades` — manual create; `PATCH /trades/{id}` — update notes/fees/net/post_analysis
 - Attachments:
   - `GET /trades/{id}/attachments`
@@ -112,6 +251,14 @@ Fonts: The UI prefers a Nerd Font (e.g., JetBrainsMono Nerd Font). To see the pa
 - `POST /templates` — create `{ name, target, sections[] }`
 - `PATCH /templates/{id}` — update name/sections
 - `DELETE /templates/{id}`
+
+### Saved Views
+- `GET /views` — list all saved views for current user
+- `POST /views` — create new saved view with filters_json
+- `GET /views/{view_id}` — get view by ID
+- `GET /views/by-name/{view_name}` — get view by name (case-insensitive)
+- `PATCH /views/{view_id}` — update view (name, description, filters, is_default)
+- `DELETE /views/{view_id}` — delete view
 
 ## Configuration
 - Web

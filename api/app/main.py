@@ -16,6 +16,7 @@ from .routes_playbooks import router as playbooks_router
 from .routes_playbook_responses import router as playbook_responses_router
 from .routes_settings import router as settings_router
 from .routes_breaches import router as breaches_router
+from .routes_views import router as views_router
 from .deps import get_current_user
 from .models import User
 from .version import get_version
@@ -53,6 +54,7 @@ app.include_router(playbooks_router)
 app.include_router(playbook_responses_router)
 app.include_router(settings_router)
 app.include_router(breaches_router)
+app.include_router(views_router)
 
 @app.get("/health")
 def health():

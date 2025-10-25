@@ -7,7 +7,7 @@
 - M4: Journal + screenshots ✅
 - M5: Playbooks v1 ✅
 - M6: Guardrails + account lifecycle ✅
-- M7: Reports + filter builder
+- M7: Reports + filter builder (Phase 1 & 2 complete ✅, Phase 3 pending)
 - M8: Forex & Futures
 - M9 (Stretch): Insight Coach
 

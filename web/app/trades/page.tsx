@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { FilterBuilder, FilterChips, FilterDSL } from "../components/filters";
 
 type Trade = {
   id: number; account_name?: string | null; symbol?: string | null; side: string;
@@ -60,6 +61,7 @@ function TradesView(){
   const [selected, setSelected] = useState<number[]>([]);
   const [journalOpen, setJournalOpen] = useState(false);
   const [journalText, setJournalText] = useState("");
+  const [activeFilters, setActiveFilters] = useState<FilterDSL | null>(null);
 
   useEffect(() => {
     try {
@@ -73,11 +75,18 @@ function TradesView(){
       const sym = searchParams?.get('symbol') || '';
       const acc = searchParams?.get('account') || '';
       const sortParam = searchParams?.get('sort') || '';
+      const filtersParam = searchParams?.get('filters') || '';
       if (s) setStartDate(s);
       if (e) setEndDate(e);
       if (sym) setSymbol(sym);
       if (acc) setAccount(acc);
       if (sortParam) setSort(sortParam);
+      if (filtersParam) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(filtersParam));
+          setActiveFilters(parsed);
+        } catch {}
+      }
       // If no URL params, restore saved filters
       if (!s && !e && !sym && !acc && !sortParam){
         const lsStart = localStorage.getItem('trades_start') || '';
@@ -129,6 +138,9 @@ function TradesView(){
       params.set("limit", String(pageSize));
       params.set("offset", String((page-1)*pageSize));
       if (sort) params.set("sort", sort);
+      if (activeFilters) {
+        params.set("filters", JSON.stringify(activeFilters));
+      }
       const r = await fetch(`${API_BASE}/trades?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
@@ -152,7 +164,33 @@ function TradesView(){
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { if (token) { load(); } }, [token]);
+  useEffect(() => { if (token) { load(); } }, [token, activeFilters, symbol, account, startDate, endDate, sort, page, pageSize]);
+
+  function handleApplyFilters(filterDsl: FilterDSL | null){
+    setActiveFilters(filterDsl);
+    setPage(1);
+    const next = new URLSearchParams();
+    if (symbol) next.set("symbol", symbol);
+    if (account) next.set("account", account);
+    if (startDate) next.set("start", startDate);
+    if (endDate) next.set("end", endDate);
+    if (sort) next.set("sort", sort);
+    if (filterDsl) {
+      next.set("filters", encodeURIComponent(JSON.stringify(filterDsl)));
+    }
+    router.push(`/trades?${next.toString()}`);
+  }
+
+  function handleRemoveFilterCondition(index: number){
+    if (!activeFilters) return;
+    const newConditions = activeFilters.conditions.filter((_, i) => i !== index);
+    const newFilters = newConditions.length > 0 ? { ...activeFilters, conditions: newConditions } : null;
+    handleApplyFilters(newFilters);
+  }
+
+  function handleClearAllFilters(){
+    handleApplyFilters(null);
+  }
 
   function applyFilters(){
     const next = new URLSearchParams();
@@ -161,9 +199,11 @@ function TradesView(){
     if (startDate) next.set("start", startDate);
     if (endDate) next.set("end", endDate);
     if (sort) next.set("sort", sort);
+    if (activeFilters) {
+      next.set("filters", encodeURIComponent(JSON.stringify(activeFilters)));
+    }
     router.push(`/trades?${next.toString()}`);
     setPage(1);
-    load();
     try{
       localStorage.setItem('trades_start', startDate);
       localStorage.setItem('trades_end', endDate);
@@ -178,6 +218,7 @@ function TradesView(){
     setStartDate("");
     setEndDate("");
     setSort("open_time_utc:desc");
+    setActiveFilters(null);
     setPage(1);
     try{
       localStorage.removeItem('trades_start');
@@ -185,7 +226,6 @@ function TradesView(){
       localStorage.removeItem('trades_sort');
     }catch{}
     router.push('/trades');
-    setTimeout(load, 0);
   }
 
   function toggleSort(field: string){
@@ -406,6 +446,19 @@ function TradesView(){
           Please <a href="/auth/login">sign in</a> to view your trades.
         </div>
       )}
+
+      {/* Advanced Filter Builder */}
+      {token && (
+        <>
+          <FilterBuilder onApply={handleApplyFilters} initialFilters={activeFilters || undefined} />
+          <FilterChips
+            filters={activeFilters}
+            onRemoveCondition={handleRemoveFilterCondition}
+            onClearAll={handleClearAllFilters}
+          />
+        </>
+      )}
+
       <div style={{display:'flex', gap:8, margin:'8px 0', flexWrap:'wrap'}}>
         <div>
           <input list="symbol-list" placeholder="Symbol contains" value={symbol} onChange={e=>setSymbol(e.target.value)} />
