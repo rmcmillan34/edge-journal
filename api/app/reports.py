@@ -35,8 +35,13 @@ class ReportGenerator:
         self.user_id = user_id
 
         # Set up Jinja2 environment for templates
+        # Use dynamic path that works in Docker (/app) and CI/local (repo root)
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        templates_dir = os.path.join(base_dir, "templates", "reports")
+
         self.jinja_env = Environment(
-            loader=FileSystemLoader("/app/templates/reports"),
+            loader=FileSystemLoader(templates_dir),
             autoescape=select_autoescape(['html', 'xml'])
         )
 
