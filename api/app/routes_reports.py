@@ -156,13 +156,12 @@ def generate_report(
         print(f"[ERROR] Report generation failed: {type(e).__name__}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
 
-    # Save to disk for history
-    user_reports_dir = os.path.join(REPORTS_BASE_DIR, str(current.id), "reports")
-    os.makedirs(user_reports_dir, exist_ok=True)
-
-    filepath = os.path.join(user_reports_dir, filename)
-
+    # Save to disk for history (skip in CI/test environments without /data access)
     try:
+        user_reports_dir = os.path.join(REPORTS_BASE_DIR, str(current.id), "reports")
+        os.makedirs(user_reports_dir, exist_ok=True)
+
+        filepath = os.path.join(user_reports_dir, filename)
         with open(filepath, "wb") as f:
             f.write(content_bytes)
     except Exception as e:
