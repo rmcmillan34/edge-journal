@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}Trade Report - {{ trade.symbol }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Cover Page -->
+    <div class="cover-page">
+        <div class="cover-title">Trade Report</div>
+        <div class="cover-subtitle">{{ trade.symbol }} - {{ trade.open_time_utc.strftime('%Y-%m-%d') if trade.open_time_utc else 'N/A' }}</div>
+        <div class="cover-meta">
+            <p>{{ trade.side.upper() }} {{ trade.qty_units if trade.qty_units else 'N/A' }} units</p>
+            <p>Generated: {{ generated_at }}</p>
+        </div>
+    </div>
+
+    <!-- Trade Overview -->
+    <div class="section no-break">
+        <h1>Trade Overview</h1>
+
+        <!-- Trade Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Symbol</div>
+                <div class="metric-value">{{ trade.symbol }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Side</div>
+                <div class="metric-value">{{ trade.side.upper() }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Quantity</div>
+                <div class="metric-value">{{ "%.4f"|format(trade.qty_units) if trade.qty_units else 'N/A' }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Entry Price</div>
+                <div class="metric-value">${{ "%.5f"|format(trade.entry_price) if trade.entry_price else 'N/A' }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Exit Price</div>
+                <div class="metric-value">${{ "%.5f"|format(trade.exit_price) if trade.exit_price else 'N/A' }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Net P&L</div>
+                <div class="metric-value {% if trade.net_pnl > 0 %}positive{% elif trade.net_pnl < 0 %}negative{% endif %}">
+                    ${{ "%.2f"|format(trade.net_pnl) if trade.net_pnl else '0.00' }}
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Gross P&L</div>
+                <div class="metric-value">
+                    ${{ "%.2f"|format(trade.gross_pnl) if trade.gross_pnl else '0.00' }}
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Fees</div>
+                <div class="metric-value">
+                    ${{ "%.2f"|format(trade.fees) if trade.fees else '0.00' }}
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Account</div>
+                <div class="metric-value">{{ trade.account.name if trade.account else 'N/A' }}</div>
+            </div>
+        </div>
+
+        <!-- Timing Details -->
+        <h3>Timing</h3>
+        <table>
+            <tr>
+                <th>Open Time (UTC)</th>
+                <td>{{ trade.open_time_utc.strftime('%Y-%m-%d %H:%M:%S') if trade.open_time_utc else 'N/A' }}</td>
+            </tr>
+            <tr>
+                <th>Close Time (UTC)</th>
+                <td>{{ trade.close_time_utc.strftime('%Y-%m-%d %H:%M:%S') if trade.close_time_utc else 'N/A' }}</td>
+            </tr>
+            {% if trade.open_time_utc and trade.close_time_utc %}
+            <tr>
+                <th>Duration</th>
+                <td>{{ duration }}</td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+
+    <!-- Pre-Trade Notes -->
+    {% if trade.notes_md %}
+    <div class="section">
+        <h2>Pre-Trade Notes</h2>
+        <div class="markdown-content">
+            {{ trade.notes_md }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Post-Trade Analysis -->
+    {% if trade.post_analysis_md %}
+    <div class="section">
+        <h2>Post-Trade Analysis</h2>
+        <div class="markdown-content">
+            {{ trade.post_analysis_md }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Playbook Responses -->
+    {% if playbook_responses %}
+    <div class="section">
+        <h2>Playbook Responses</h2>
+        {% for response in playbook_responses %}
+        <div class="playbook-response no-break">
+            <h3>{{ response.template_name }} (v{{ response.template_version }})</h3>
+            <p class="text-muted">Submitted: {{ response.submitted_at.strftime('%Y-%m-%d %H:%M') if response.submitted_at else 'N/A' }}</p>
+
+            {% if response.fields_json %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Response</th>
+                        <th>Grade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for field in response.fields %}
+                    <tr>
+                        <td>{{ field.label }}</td>
+                        <td>{{ field.value }}</td>
+                        <td>
+                            {% if field.grade %}
+                            <span class="grade-{{ field.grade }}">{{ field.grade.upper() }}</span>
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+
+            {% if response.overall_grade %}
+            <p><strong>Overall Grade:</strong> <span class="grade-{{ response.overall_grade }}">{{ response.overall_grade.upper() }}</span></p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Daily Journal -->
+    {% if journal %}
+    <div class="section">
+        <h2>Daily Journal - {{ journal_date }}</h2>
+        {% if journal.title %}
+        <h3>{{ journal.title }}</h3>
+        {% endif %}
+        {% if journal.notes_md %}
+        <div class="markdown-content">
+            {{ journal.notes_md }}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Attachments -->
+    {% if attachments %}
+    <div class="section">
+        <h2>Attachments ({{ attachments|length }})</h2>
+
+        {% for attachment in attachments %}
+        <div class="attachment-item" style="margin-bottom: 1.5rem; page-break-inside: avoid;">
+            <div style="margin-bottom: 0.5rem;">
+                <strong>{{ attachment.filename }}</strong>
+                {% if attachment.caption %}
+                <p style="margin: 0.25rem 0; color: var(--text-secondary); font-size: 0.9rem;">{{ attachment.caption }}</p>
+                {% endif %}
+                {% if attachment.timeframe or attachment.state or attachment.view %}
+                <p style="margin: 0.25rem 0; font-size: 0.85rem; color: var(--text-muted);">
+                    {% if attachment.timeframe %}<span class="badge">{{ attachment.timeframe }}</span>{% endif %}
+                    {% if attachment.state %}<span class="badge">{{ attachment.state }}</span>{% endif %}
+                    {% if attachment.view %}<span class="badge">{{ attachment.view }}</span>{% endif %}
+                </p>
+                {% endif %}
+            </div>
+
+            {% if attachment.is_image and attachment.data_uri %}
+            <div style="text-align: center;">
+                <img src="{{ attachment.data_uri }}" alt="{{ attachment.filename }}" style="max-width: 100%; max-height: 600px; border: 1px solid var(--border); border-radius: 4px;" />
+            </div>
+            {% else %}
+            <p style="color: var(--text-muted); font-style: italic;">{{ attachment.mime_type or 'File' }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

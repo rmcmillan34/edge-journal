@@ -7,7 +7,10 @@
 - M4: Journal + screenshots ✅
 - M5: Playbooks v1 ✅
 - M6: Guardrails + account lifecycle ✅
-- M7: Reports + filter builder
+- M7: Reports + filter builder ✅
+  - Phase 1: Filter Builder Foundation ✅ (v0.7.1)
+  - Phase 2: Saved Views ✅ (v0.7.2)
+  - Phase 3: PDF Report Generation ✅ (v0.7.3 - Monthly reports fully implemented, other types as stubs)
 - M8: Forex & Futures
 - M9 (Stretch): Insight Coach
 

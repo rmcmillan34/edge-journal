@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, func, Boolean, ForeignKey, UniqueConstraint, Float, Text
-from sqlalchemy import Numeric
+from sqlalchemy import Column, Integer, String, DateTime, Date, func, Boolean, ForeignKey, UniqueConstraint, Float, Text, Index
+from sqlalchemy import Numeric, TIMESTAMP
 from sqlalchemy.orm import relationship
 from .db import Base
 
@@ -22,6 +22,9 @@ class User(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     tz = Column(String(64), default="Australia/Sydney", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    saved_views = relationship("SavedView", back_populates="user", cascade="all, delete-orphan")
 
 # --- Uploads (to audit imports) ---
 class Upload(Base):
@@ -292,3 +295,48 @@ class BreachEvent(Base):
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     acknowledged_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# --- Saved Views (M7) ---
+class SavedView(Base):
+    """
+    SavedView model for storing user filter configurations.
+
+    Attributes:
+        id (int): Primary key.
+        user_id (int): Foreign key to users table.
+        name (str): Name of the saved view.
+        description (str): Optional description.
+        filters_json (str): Filter DSL as JSON string.
+        columns_json (str): Optional column configuration.
+        sort_json (str): Optional sort configuration.
+        group_by (str): Optional grouping field.
+        is_default (bool): Whether this is the default view.
+        created_at (datetime): Timestamp of creation.
+        updated_at (datetime): Timestamp of last update.
+    """
+    __tablename__ = "saved_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Configuration (JSON strings)
+    filters_json = Column(Text, nullable=False)
+    columns_json = Column(Text, nullable=True)
+    sort_json = Column(Text, nullable=True)
+    group_by = Column(String(64), nullable=True)
+
+    # Metadata
+    is_default = Column(Boolean, default=False, server_default="false", nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="saved_views")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='unique_user_view_name'),
+        Index('idx_saved_views_default', 'user_id', 'is_default'),
+    )

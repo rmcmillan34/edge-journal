@@ -7,14 +7,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    curl \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --upgrade pip
-# NOTE: for a lean runtime image, you'd drop pytest/ruff/black later.
-RUN pip install --no-cache-dir \
-    fastapi uvicorn[standard] sqlalchemy alembic psycopg2-binary pydantic \
-    passlib[argon2] python-jose[cryptography] email-validator python-multipart tzdata \
-    pytest httpx ruff black
+# Copy requirements and install dependencies
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/requirements.txt
 
 # Bake version from CI
 ARG VERSION="0.0.0-dev"

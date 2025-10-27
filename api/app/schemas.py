@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, Field, RootModel
 from pydantic import ConfigDict
 from typing import Dict, List, Optional
 from typing import Any, Literal
+from datetime import datetime
 import warnings
 
 # Suppress Pydantic warnings about 'schema' field shadowing BaseModel attribute
@@ -338,3 +339,107 @@ class BreachEventOut(BaseModel):
     details: Optional[Dict[str, Any]] = None
     acknowledged: Optional[bool] = None
     created_at: Optional[str] = None
+
+
+# --- Filter Builder (M7) ---
+FilterOperator = Literal[
+    'eq',        # equals
+    'ne',        # not equals
+    'contains',  # string contains (case-insensitive)
+    'in',        # value in list
+    'not_in',    # value not in list
+    'gte',       # ≥
+    'lte',       # ≤
+    'gt',        # >
+    'lt',        # <
+    'between',   # date/number range
+    'is_null',   # field is NULL
+    'not_null'   # field is NOT NULL
+]
+
+
+class Condition(BaseModel):
+    """Single filter condition"""
+    field: str
+    op: FilterOperator
+    value: Optional[Any] = None  # Can be string, number, list, or None for null checks
+
+
+class Filter(BaseModel):
+    """Recursive filter group with AND/OR operator"""
+    operator: Literal['AND', 'OR']
+    conditions: List[Any]  # List of Condition or Filter (recursive)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# --- Saved Views (M7) ---
+class SavedViewCreate(BaseModel):
+    """Schema for creating a saved view"""
+    name: str = Field(..., min_length=1, max_length=128)
+    description: Optional[str] = None
+    filters_json: str = Field(..., description="Filter DSL as JSON string")
+    columns_json: Optional[str] = None
+    sort_json: Optional[str] = None
+    group_by: Optional[str] = None
+    is_default: bool = False
+
+
+class SavedViewUpdate(BaseModel):
+    """Schema for updating a saved view"""
+    name: Optional[str] = Field(None, min_length=1, max_length=128)
+    description: Optional[str] = None
+    filters_json: Optional[str] = None
+    columns_json: Optional[str] = None
+    sort_json: Optional[str] = None
+    group_by: Optional[str] = None
+    is_default: Optional[bool] = None
+
+
+class SavedViewOut(BaseModel):
+    """Schema for saved view response"""
+    id: int
+    user_id: int
+    name: str
+    description: Optional[str]
+    filters_json: str
+    columns_json: Optional[str]
+    sort_json: Optional[str]
+    group_by: Optional[str]
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Reports (M7 Phase 3) ---
+class ReportPeriod(BaseModel):
+    """Period specification for reports"""
+    year: Optional[int] = None
+    month: Optional[int] = None
+    week: Optional[int] = None
+    date: Optional[str] = None  # YYYY-MM-DD for daily reports
+    trade_id: Optional[int] = None  # For single trade reports
+
+
+class ReportGenerateRequest(BaseModel):
+    """Request schema for report generation"""
+    type: Literal["trade", "daily", "weekly", "monthly", "yearly", "ytd", "alltime"]
+    period: ReportPeriod
+    view_id: Optional[int] = None
+    account_ids: Optional[List[int]] = None  # If None, includes all accounts
+    account_separation_mode: Literal["combined", "grouped", "separate"] = "combined"
+    theme: Literal["light", "dark"] = "light"
+    include_screenshots: bool = True
+
+
+class ReportHistoryOut(BaseModel):
+    """Report history item"""
+    id: int
+    filename: str
+    report_type: str
+    created_at: datetime
+    file_size_bytes: int
+
+    model_config = ConfigDict(from_attributes=True)

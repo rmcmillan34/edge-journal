@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Edge-Journal Report{% endblock %}</title>
+
+    <style>
+        /* ========== Reset & Base Styles ========== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 10pt;
+            line-height: 1.6;
+        }
+
+        /* ========== Theme Variables ========== */
+        {% if theme == 'dark' %}
+        :root {
+            --bg-primary: #1e1e2e;
+            --bg-secondary: #313244;
+            --text-primary: #cdd6f4;
+            --text-secondary: #a6adc8;
+            --text-muted: #6c7086;
+            --accent-primary: #89b4fa;
+            --accent-success: #a6e3a1;
+            --accent-danger: #f38ba8;
+            --accent-warning: #f9e2af;
+            --border-color: #45475a;
+            --table-header-bg: #313244;
+            --table-row-hover: #45475a;
+        }
+        {% else %}
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f5;
+            --text-primary: #1e1e2e;
+            --text-secondary: #4c4f69;
+            --text-muted: #6c6f85;
+            --accent-primary: #1e66f5;
+            --accent-success: #40a02b;
+            --accent-danger: #d20f39;
+            --accent-warning: #df8e1d;
+            --border-color: #dce0e8;
+            --table-header-bg: #e6e9ef;
+            --table-row-hover: #f5f5f5;
+        }
+        {% endif %}
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        /* ========== Typography ========== */
+        h1 {
+            font-size: 24pt;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        h2 {
+            font-size: 18pt;
+            font-weight: 600;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 14pt;
+            font-weight: 600;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        p {
+            margin-bottom: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        /* ========== Layout ========== */
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .cover-page {
+            page-break-after: always;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 90vh;
+            text-align: center;
+        }
+
+        .cover-title {
+            font-size: 36pt;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .cover-subtitle {
+            font-size: 18pt;
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+        }
+
+        .cover-meta {
+            font-size: 12pt;
+            color: var(--text-muted);
+        }
+
+        /* ========== Metrics Grid ========== */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .metric-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .metric-label {
+            font-size: 9pt;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 18pt;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .metric-value.positive {
+            color: var(--accent-success);
+        }
+
+        .metric-value.negative {
+            color: var(--accent-danger);
+        }
+
+        /* ========== Tables ========== */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 9pt;
+        }
+
+        thead {
+            background-color: var(--table-header-bg);
+        }
+
+        th {
+            text-align: left;
+            padding: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        td {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        tr:hover {
+            background-color: var(--table-row-hover);
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .trade-win {
+            color: var(--accent-success);
+            font-weight: 600;
+        }
+
+        .trade-loss {
+            color: var(--accent-danger);
+            font-weight: 600;
+        }
+
+        /* ========== Charts ========== */
+        .chart-container {
+            margin: 2rem 0;
+            text-align: center;
+        }
+
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* ========== Page Breaks ========== */
+        .page-break {
+            page-break-after: always;
+        }
+
+        .no-break {
+            page-break-inside: avoid;
+        }
+
+        /* ========== Print Styles ========== */
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+
+        @media print {
+            .container {
+                max-width: 100%;
+                padding: 0;
+            }
+
+            .page-break {
+                page-break-after: always;
+            }
+
+            .no-break {
+                page-break-inside: avoid;
+            }
+        }
+
+        /* ========== Utility Classes ========== */
+        .text-muted {
+            color: var(--text-muted);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 8pt;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background-color: var(--accent-success);
+            color: white;
+        }
+
+        .badge-danger {
+            background-color: var(--accent-danger);
+            color: white;
+        }
+
+        .badge-warning {
+            background-color: var(--accent-warning);
+            color: var(--text-primary);
+        }
+
+        .badge-info {
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
+        /* ========== Calendar Styles ========== */
+        .calendar-container {
+            margin: 2rem 0;
+        }
+
+        .calendar-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 4px;
+            margin: 1rem 0;
+        }
+
+        .calendar-table th {
+            background-color: var(--table-header-bg);
+            padding: 0.5rem;
+            text-align: center;
+            font-size: 8pt;
+            font-weight: 600;
+            border: none;
+        }
+
+        .calendar-table td {
+            border: 1px solid var(--border-color);
+            padding: 0.5rem;
+            text-align: center;
+            vertical-align: top;
+            min-height: 60px;
+            background-color: var(--bg-secondary);
+        }
+
+        .calendar-table td.empty {
+            background-color: transparent;
+            border: none;
+        }
+
+        .calendar-table td.calendar-day {
+            background-color: var(--bg-secondary);
+        }
+
+        .calendar-table td.calendar-day.positive {
+            background-color: rgba(166, 227, 161, 0.15);
+            border-color: var(--accent-success);
+        }
+
+        .calendar-table td.calendar-day.negative {
+            background-color: rgba(243, 139, 168, 0.15);
+            border-color: var(--accent-danger);
+        }
+
+        .calendar-table td.calendar-day.neutral {
+            background-color: rgba(137, 180, 250, 0.1);
+            border-color: var(--accent-primary);
+        }
+
+        .calendar-table .day-number {
+            font-size: 9pt;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--text-primary);
+        }
+
+        .calendar-table .day-pnl {
+            font-size: 8pt;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .calendar-table td.positive .day-pnl {
+            color: var(--accent-success);
+        }
+
+        .calendar-table td.negative .day-pnl {
+            color: var(--accent-danger);
+        }
+
+        .calendar-table .day-trades {
+            font-size: 7pt;
+            color: var(--text-muted);
+        }
+
+        {% block extra_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    {% block content %}{% endblock %}
+</body>
+</html>

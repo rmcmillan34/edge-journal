@@ -1,0 +1,27 @@
+# Core FastAPI & Database
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+psycopg2-binary
+pydantic
+email-validator
+python-multipart
+tzdata
+
+# Authentication
+passlib[argon2]
+python-jose[cryptography]
+
+# PDF Report Generation (M7 Phase 3) - Updated 2025-01-25
+weasyprint==61.2
+pydyf==0.10.0  # Pin to 0.10.0 - weasyprint 61.2 incompatible with 0.11.0+
+matplotlib==3.8.2
+Jinja2==3.1.3
+Pillow==10.2.0
+
+# Development & Testing
+pytest
+httpx
+ruff
+black

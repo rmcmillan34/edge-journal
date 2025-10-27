@@ -99,6 +99,7 @@ export default function RootLayout({ children }:{children:React.ReactNode}){
             <a href="/playbooks">Playbooks</a>
             <a href="/templates">Templates</a>
             <a href="/guardrails">Guardrails</a>
+            <a href="/reports">Reports</a>
             <a href="/settings">Settings</a>
           </div>
           <div style={{display:'flex', alignItems:'center', gap:8}}>

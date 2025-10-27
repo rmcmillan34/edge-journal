@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import ReportGenerateModal from "../components/ReportGenerateModal";
 
 type Metrics = {
   trades_total: number;
@@ -40,6 +41,7 @@ export default function Dashboard(){
   const [journalDates, setJournalDates] = useState<string[]>([]);
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [rulesModalOpen, setRulesModalOpen] = useState<boolean>(false);
+  const [reportModalOpen, setReportModalOpen] = useState<boolean>(false);
   const [rules, setRules] = useState({ max_losses_row_day: 3, max_losing_days_streak_week: 2, max_losing_weeks_streak_month: 2, alerts_enabled: true });
   const [acctCaps, setAcctCaps] = useState<{ id:number; name:string; account_max_risk_pct?: number|null }[]>([]);
   const [breaches, setBreaches] = useState<any[]>([]);
@@ -297,6 +299,13 @@ export default function Dashboard(){
             localStorage.setItem('ej_display_tz','');
           }catch{}
         }}>Clear Filters</button>
+        <button
+          type="button"
+          onClick={()=>setReportModalOpen(true)}
+          style={{background:'#3b82f6', color:'#fff', border:'none', padding:'6px 12px', borderRadius:4, cursor:'pointer'}}
+        >
+          📊 Generate Report
+        </button>
         {loading && <span style={{color:'#64748b'}}>Loading…</span>}
       </div>
       <div style={{display:'grid', gridTemplateColumns:'repeat(5, minmax(0, 1fr))', gap:12, margin:'12px 0'}}>
@@ -367,6 +376,14 @@ export default function Dashboard(){
           })}
         </div>
       )}
+
+      {/* Report Generation Modal */}
+      <ReportGenerateModal
+        isOpen={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        defaultType="monthly"
+        defaultPeriod={{ year: monthAnchor.getFullYear(), month: monthAnchor.getMonth() + 1 }}
+      />
     </main>
   );
 }

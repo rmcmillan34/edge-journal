@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Week {{ week_number }}, {{ year }} - Weekly Trading Report{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Cover Page -->
+    <div class="cover-page">
+        <div class="cover-title">Weekly Trading Report</div>
+        <div class="cover-subtitle">Week {{ week_number }}, {{ year }}</div>
+        <div class="cover-meta">
+            <p>{{ start_date }} to {{ end_date }}</p>
+            <p>Generated: {{ generated_at }}</p>
+        </div>
+    </div>
+
+    <!-- Weekly Summary -->
+    <div class="section no-break">
+        <h1>Week Overview</h1>
+
+        <!-- Performance Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Total P&L</div>
+                <div class="metric-value {% if metrics.total_pnl > 0 %}positive{% elif metrics.total_pnl < 0 %}negative{% endif %}">
+                    ${{ "%.2f"|format(metrics.total_pnl) }}
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Total Trades</div>
+                <div class="metric-value">{{ metrics.total_trades }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Win Rate</div>
+                <div class="metric-value">{{ "%.1f"|format(metrics.win_rate * 100) }}%</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Avg Win</div>
+                <div class="metric-value positive">${{ "%.2f"|format(metrics.avg_win) }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Avg Loss</div>
+                <div class="metric-value negative">${{ "%.2f"|format(metrics.avg_loss) }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Profit Factor</div>
+                <div class="metric-value">{{ "%.2f"|format(metrics.profit_factor) }}</div>
+            </div>
+        </div>
+
+        <!-- Equity Curve -->
+        {% if equity_chart %}
+        <div class="chart-container">
+            <h3>Weekly Equity Curve</h3>
+            <img src="{{ equity_chart }}" alt="Equity Curve" />
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Day-by-Day Breakdown -->
+    {% if daily_breakdown %}
+    <div class="section">
+        <h2>Daily Breakdown</h2>
+        {% for day in daily_breakdown %}
+        <div class="day-section">
+            <h3>{{ day.date }} ({{ day.weekday }})</h3>
+            <div class="day-stats">
+                <span class="stat">Trades: {{ day.trade_count }}</span>
+                <span class="stat {% if day.pnl > 0 %}positive{% elif day.pnl < 0 %}negative{% endif %}">
+                    P&L: ${{ "%.2f"|format(day.pnl) }}
+                </span>
+            </div>
+
+            {% if day.trades %}
+            <table class="trade-table-compact">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Direction</th>
+                        <th>P&L</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trade in day.trades %}
+                    <tr>
+                        <td>{{ trade.open_time_utc.strftime('%H:%M') }}</td>
+                        <td>{{ trade.symbol }}</td>
+                        <td>{{ trade.side }}</td>
+                        <td class="{% if trade.net_pnl > 0 %}positive{% elif trade.net_pnl < 0 %}negative{% endif %}">
+                            ${{ "%.2f"|format(trade.net_pnl) if trade.net_pnl else '0.00' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-data">No trades</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
