@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}{{ year }} - Yearly Trading Report{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Cover Page -->
+    <div class="cover-page">
+        <div class="cover-title">Yearly Trading Report</div>
+        <div class="cover-subtitle">{{ year }}</div>
+        <div class="cover-meta">
+            <p>Generated: {{ generated_at }}</p>
+        </div>
+    </div>
+
+    <!-- Yearly Summary -->
+    <div class="section no-break">
+        <h1>Year Overview</h1>
+
+        <!-- Performance Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Total P&L</div>
+                <div class="metric-value {% if metrics.total_pnl > 0 %}positive{% elif metrics.total_pnl < 0 %}negative{% endif %}">
+                    ${{ "%.2f"|format(metrics.total_pnl) }}
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Total Trades</div>
+                <div class="metric-value">{{ metrics.total_trades }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Win Rate</div>
+                <div class="metric-value">{{ "%.1f"|format(metrics.win_rate * 100) }}%</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Avg Win</div>
+                <div class="metric-value positive">${{ "%.2f"|format(metrics.avg_win) }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Avg Loss</div>
+                <div class="metric-value negative">${{ "%.2f"|format(metrics.avg_loss) }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Profit Factor</div>
+                <div class="metric-value">{{ "%.2f"|format(metrics.profit_factor) }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Best Month</div>
+                <div class="metric-value positive">${{ "%.2f"|format(metrics.best_month_pnl) }}</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Worst Month</div>
+                <div class="metric-value negative">${{ "%.2f"|format(metrics.worst_month_pnl) }}</div>
+            </div>
+        </div>
+
+        <!-- Equity Curve -->
+        {% if equity_chart %}
+        <div class="chart-container">
+            <h3>Yearly Equity Curve</h3>
+            <img src="{{ equity_chart }}" alt="Equity Curve" />
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Monthly Breakdown -->
+    {% if monthly_breakdown %}
+    <div class="section">
+        <h2>Monthly Performance</h2>
+        <table class="monthly-table">
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Trades</th>
+                    <th>Win Rate</th>
+                    <th>P&L</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for month in monthly_breakdown %}
+                <tr>
+                    <td>{{ month.name }}</td>
+                    <td>{{ month.trade_count }}</td>
+                    <td>{{ "%.1f"|format(month.win_rate * 100) }}%</td>
+                    <td class="{% if month.pnl > 0 %}positive{% elif month.pnl < 0 %}negative{% endif %}">
+                        ${{ "%.2f"|format(month.pnl) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

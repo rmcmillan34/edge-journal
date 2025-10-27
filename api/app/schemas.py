@@ -411,3 +411,35 @@ class SavedViewOut(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Reports (M7 Phase 3) ---
+class ReportPeriod(BaseModel):
+    """Period specification for reports"""
+    year: Optional[int] = None
+    month: Optional[int] = None
+    week: Optional[int] = None
+    date: Optional[str] = None  # YYYY-MM-DD for daily reports
+    trade_id: Optional[int] = None  # For single trade reports
+
+
+class ReportGenerateRequest(BaseModel):
+    """Request schema for report generation"""
+    type: Literal["trade", "daily", "weekly", "monthly", "yearly", "ytd", "alltime"]
+    period: ReportPeriod
+    view_id: Optional[int] = None
+    account_ids: Optional[List[int]] = None  # If None, includes all accounts
+    account_separation_mode: Literal["combined", "grouped", "separate"] = "combined"
+    theme: Literal["light", "dark"] = "light"
+    include_screenshots: bool = True
+
+
+class ReportHistoryOut(BaseModel):
+    """Report history item"""
+    id: int
+    filename: str
+    report_type: str
+    created_at: datetime
+    file_size_bytes: int
+
+    model_config = ConfigDict(from_attributes=True)

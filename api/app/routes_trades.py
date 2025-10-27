@@ -848,34 +848,36 @@ def export_trade_pdf(
     trade_id: int,
     include_playbook: bool = True,
     evidence: str = "links",
+    theme: str = "light",
     db: Session = Depends(get_db),
     current = Depends(get_current_user),
 ):
-    # Load trade
-    q = db.query(
-        Trade,
-        Account.name.label("account_name"),
-        Instrument.symbol.label("symbol"),
-    ).join(Account, Account.id == Trade.account_id, isouter=True).join(Instrument, Instrument.id == Trade.instrument_id, isouter=True)
-    q = q.filter(Trade.id == trade_id, Account.user_id == current.id)
-    r = q.first()
-    if not r:
-        raise HTTPException(404, detail="Trade not found")
-    t, account_name, symbol = r
-    html = _render_trade_html(db, current.id, t, account_name, symbol, include_playbook, evidence)
+    """
+    Export single trade as professional PDF report using WeasyPrint.
+
+    Query parameters:
+    - include_playbook: Include playbook responses (default: true)
+    - evidence: Evidence display mode (not currently used, for future enhancement)
+    - theme: "light" or "dark" theme (default: "light")
+    """
+    from .reports import ReportGenerator
+
+    generator = ReportGenerator(db, current.id)
+
     try:
-        from xhtml2pdf import pisa
+        pdf_bytes, content_type = generator.generate_trade_report(
+            trade_id=trade_id,
+            theme=theme,
+            include_screenshots=True  # Always include for single trade reports
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF renderer not available: {e}")
-    import io
-    pdf_io = io.BytesIO()
-    # xhtml2pdf expects a file-like
-    result = pisa.CreatePDF(io.StringIO(html), dest=pdf_io)
-    if result.err:
-        raise HTTPException(status_code=500, detail="Failed to render PDF")
-    pdf_bytes = pdf_io.getvalue()
+        print(f"[ERROR] Trade PDF export failed: {type(e).__name__}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+
     headers = {"Content-Disposition": f"attachment; filename=trade_{trade_id}.pdf"}
-    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+    return Response(content=pdf_bytes, media_type=content_type, headers=headers)
 
 
 @router.get("/{trade_id}/export.html")

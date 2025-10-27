@@ -209,6 +209,300 @@ Authorization: Bearer <token>
 - Preview the first rows with inline errors; commit to create/update trades.
 - See import history at `/uploads`, download error CSVs, or delete an import (deletes its trades).
 
+## PDF Reports
+
+Edge-Journal can generate professional PDF reports with metrics, charts, and trade details. Reports honor your current filters and saved views, allowing you to analyze specific subsets of your trading data.
+
+### Report Types
+
+| Report Type | Description | Implementation Status |
+|-------------|-------------|-----------------------|
+| **Monthly** | Full month breakdown with weekly/daily hierarchies | ✅ Fully implemented |
+| **Daily** | Single day performance with all trades | 🚧 Stub only |
+| **Weekly** | Week performance with daily breakdowns | 🚧 Stub only |
+| **Yearly** | Full year with monthly breakdowns | 🚧 Stub only |
+| **YTD** | Year-to-date performance | 🚧 Stub only |
+| **All-Time** | Complete trading history | 🚧 Stub only |
+| **Trade** | Single trade detail report | 🚧 Stub only |
+
+**Note**: Currently only the Monthly report is fully implemented with complete data and visualizations. Other report types exist as API stubs that will throw a "not yet implemented" error.
+
+### Generating Reports (UI)
+
+The easiest way to generate reports is through the web interface:
+
+1. **Navigate to Dashboard** (`/dashboard`)
+2. **Click "Generate Report"** button
+3. **Configure your report** in the modal:
+   - **Report Type**: Choose from Monthly, Weekly, Daily, Yearly, YTD, All-Time
+   - **Period Selection**: Varies by report type
+     - Monthly: Select year and month
+     - Weekly: Select year and ISO week number
+     - Daily: Select specific date
+     - Yearly/YTD: Select year only
+   - **Account Selection**:
+     - Use "All" to select all accounts
+     - Use "None" to clear selection
+     - Or manually select specific accounts from the list
+   - **Account Separation Mode**:
+     - **Combined**: Single report with all accounts merged into one equity curve
+     - **Grouped**: Single report with separate sections per account
+     - **Separate**: Generate individual PDF per account (not yet implemented)
+   - **Saved View** (optional): Apply a saved filter view to limit trades in the report
+   - **Theme**: Choose Light or Dark mode for the PDF styling
+   - **Include Screenshots**: Toggle to include/exclude trade attachments
+4. **Click "Generate"**: PDF will be generated and automatically downloaded
+
+### Report Contents
+
+A Monthly report includes:
+
+**Cover Page**:
+- Report title with period (e.g., "Monthly Report: January 2025")
+- Generation timestamp
+- Account names included
+- Theme indicator
+
+**Executive Summary**:
+- **Metrics Grid**: Total P&L, Win Rate, Profit Factor, Average Win/Loss, Max Drawdown, Trade Count
+- **Equity Curve**: Line chart showing cumulative equity over the month
+- **Calendar Heatmap**: Month view with each day colored by P&L performance
+
+**Weekly/Daily Breakdown**:
+- Hierarchical structure: Month → Week 1-5 → Day 1-31 → Individual Trades
+- Each level shows relevant metrics
+- Trade details include:
+  - Symbol, side, entry/exit prices
+  - Open/close times
+  - Quantity and fees
+  - Net P&L (color-coded)
+  - Notes (Markdown rendered)
+  - Playbook grade and compliance score (if applicable)
+  - Screenshots/attachments (inline or appendix reference)
+
+**Screenshot Appendix** (optional):
+- For trades with >2 screenshots, full-size images are placed in an appendix
+- Trades with ≤2 screenshots show them inline
+
+### Account Separation Modes
+
+Reports can aggregate multiple accounts in different ways:
+
+- **Combined**: All trades treated as a single unified account
+  - Single equity curve
+  - Single metrics calculation
+  - Best for viewing overall performance
+
+- **Grouped**: Separate sections per account within one PDF
+  - Each account gets its own metrics and equity curve
+  - Allows comparison within one document
+  - Still generates a single PDF file
+
+- **Separate**: Individual PDF per selected account (not yet implemented)
+  - Would generate multiple PDFs in a ZIP file
+  - Useful for sharing account-specific reports
+
+### Report History
+
+Previously generated reports are stored and can be accessed:
+
+1. Navigate to **Settings → Report History** (or use API directly)
+2. View list of generated reports with:
+   - Filename
+   - Report type
+   - Generation timestamp
+   - File size
+3. Actions available:
+   - **Download**: Re-download a previous report
+   - **Delete**: Remove report from history
+
+Reports are stored at `/data/exports/{user_id}/reports/` with filenames like:
+- `monthly_report_2025_01.pdf`
+- `daily_report_2025-01-15.pdf`
+- `weekly_report_2025_W03.pdf`
+
+### API Usage
+
+Generate reports programmatically via the API:
+
+**Generate Monthly Report**:
+```bash
+POST /api/reports/generate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "type": "monthly",
+  "period": {
+    "year": 2025,
+    "month": 1
+  },
+  "account_ids": [1, 2],
+  "account_separation_mode": "combined",
+  "view_id": null,
+  "theme": "dark",
+  "include_screenshots": true
+}
+
+Response: PDF file download (application/pdf)
+```
+
+**Generate Daily Report**:
+```bash
+POST /api/reports/generate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "type": "daily",
+  "period": {
+    "date": "2025-01-15"
+  },
+  "account_ids": null,
+  "account_separation_mode": "combined",
+  "theme": "light",
+  "include_screenshots": false
+}
+
+Response: 501 Not Implemented (stub only)
+```
+
+**Generate Yearly Report**:
+```bash
+POST /api/reports/generate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "type": "yearly",
+  "period": {
+    "year": 2025
+  },
+  "account_ids": [1],
+  "theme": "light"
+}
+
+Response: 501 Not Implemented (stub only)
+```
+
+**Apply Saved View to Report**:
+```bash
+POST /api/reports/generate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "type": "monthly",
+  "period": {
+    "year": 2025,
+    "month": 1
+  },
+  "view_id": 3,  // Apply saved view filters
+  "theme": "dark"
+}
+
+Response: PDF with only trades matching the saved view filters
+```
+
+**List Report History**:
+```bash
+GET /api/reports/history
+Authorization: Bearer <token>
+
+Response:
+[
+  {
+    "id": 1234567890,
+    "filename": "monthly_report_2025_01.pdf",
+    "report_type": "monthly",
+    "created_at": "2025-10-25T14:30:00Z",
+    "file_size_bytes": 2457600
+  },
+  {
+    "id": 987654321,
+    "filename": "daily_report_2025-01-15.pdf",
+    "report_type": "daily",
+    "created_at": "2025-10-24T10:15:00Z",
+    "file_size_bytes": 524288
+  }
+]
+```
+
+**Download Report from History**:
+```bash
+GET /api/reports/download/{filename}
+Authorization: Bearer <token>
+
+Example:
+GET /api/reports/download/monthly_report_2025_01.pdf
+
+Response: PDF file download (application/pdf)
+```
+
+**Delete Report**:
+```bash
+DELETE /api/reports/{filename}
+Authorization: Bearer <token>
+
+Example:
+DELETE /api/reports/monthly_report_2025_01.pdf
+
+Response:
+{
+  "message": "Report deleted successfully",
+  "filename": "monthly_report_2025_01.pdf"
+}
+```
+
+### Theme Customization
+
+Reports support two built-in themes:
+
+**Light Theme**:
+- White background
+- Dark text (#1e293b)
+- Blue accents (#2563eb)
+- Professional appearance for printing
+
+**Dark Theme**:
+- Dark background (#1e1e2e - Catppuccin Mocha)
+- Light text (#cdd6f4)
+- Accent colors from Catppuccin palette
+- Reduced eye strain for screen viewing
+
+Both themes use CSS variables defined in the report templates, ensuring consistent styling across all report types.
+
+### Tips & Best Practices
+
+- **Start with Monthly**: The monthly report is the most comprehensive and fully implemented
+- **Use Saved Views**: Apply filters via saved views to focus reports on specific strategies or instruments
+- **Account Separation**: Use "combined" for overall performance, "grouped" for per-account analysis
+- **Screenshots**: Disable screenshots for faster generation and smaller file sizes
+- **Report History**: Regularly clean up old reports to save disk space
+- **Theme Selection**: Use dark theme for screen review, light theme for printing
+
+### Troubleshooting
+
+**Report generation fails with 501 error**:
+- You're trying to generate a report type that's not yet implemented
+- Currently only monthly reports are fully supported
+- Solution: Use `"type": "monthly"` in your request
+
+**PDF is missing trades**:
+- Check if a saved view filter is applied (`view_id` in request)
+- Verify account selection includes the accounts you expect
+- Ensure the period matches when your trades occurred
+
+**Report generation is slow**:
+- Large numbers of screenshots increase generation time
+- Try setting `include_screenshots: false` for faster generation
+- Monthly reports with 100+ trades may take 10-20 seconds
+
+**Screenshot Appendix is huge**:
+- Screenshots are embedded as base64 in the PDF
+- Consider limiting screenshot uploads or disabling them in reports
+- Future versions may add thumbnail-only options
+
 ## Keyboard Shortcuts
 - Cmd/Ctrl+S: Saves notes on Trade detail and Daily journal pages.
 - Esc: Exits attachment reorder mode on the Trade detail page.
@@ -259,6 +553,13 @@ Authorization: Bearer <token>
 - `GET /views/by-name/{view_name}` — get view by name (case-insensitive)
 - `PATCH /views/{view_id}` — update view (name, description, filters, is_default)
 - `DELETE /views/{view_id}` — delete view
+
+### Reports
+- `POST /api/reports/generate` — generate PDF report (returns PDF download)
+  - Body: `{ type, period, account_ids, account_separation_mode, view_id, theme, include_screenshots }`
+- `GET /api/reports/history` — list previously generated reports
+- `GET /api/reports/download/{filename}` — download report from history
+- `DELETE /api/reports/{filename}` — delete report from history
 
 ## Configuration
 - Web
