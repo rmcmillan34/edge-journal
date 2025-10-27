@@ -1232,7 +1232,11 @@ class ReportGenerator:
         import base64
         import mimetypes
 
-        if not os.path.exists(file_path):
+        # Check if file exists, handle permission errors gracefully (e.g., in CI)
+        try:
+            if not os.path.exists(file_path):
+                return ""
+        except (PermissionError, OSError):
             return ""
 
         # Detect MIME type if not provided
