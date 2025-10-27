@@ -33,3 +33,4 @@
 - Dashboard data export: one-click CSV for the currently selected month (date, daily net PnL, equity), honoring symbol/account/tz filters.
 - Trades export polish: export full result set via streaming when filters exceed client limit.
 - UI niceties: loading skeletons for KPI tiles/calendar; sticky headers for long tables across the app.
+- CI test improvements: Mock file system operations for report generation tests instead of gracefully catching permission errors. Currently CI tests pass by degrading functionality (skipping disk saves), but proper mocking would validate full feature behavior including attachment embedding and report history storage.
