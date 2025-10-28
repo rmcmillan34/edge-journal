@@ -323,3 +323,200 @@ def get_calendar(
         cur += timedelta(days=1)
 
     return {"days": result}
+
+@router.get("/forex-summary")
+def get_forex_summary(
+    db: Session = Depends(get_db),
+    current = Depends(get_current_user),
+    account_id: Optional[int] = Query(None, description="Filter by account ID"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD) inclusive"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD) inclusive"),
+):
+    """
+    Get forex-specific metrics:
+    - Total pips won/lost
+    - Average pips per trade
+    - Win rate by pips (separate from $ win rate)
+    - Average lot size
+    - Best/worst pip trades
+    - Total trades
+    """
+    # Build base query for forex trades
+    query = (
+        db.query(Trade)
+        .join(Account, Account.id == Trade.account_id)
+        .join(Instrument, Instrument.id == Trade.instrument_id)
+        .filter(Account.user_id == current.id)
+        .filter(Instrument.asset_class == 'forex')
+    )
+
+    # Apply filters
+    if account_id:
+        query = query.filter(Trade.account_id == account_id)
+
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Trade.open_time_utc >= start_dt)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            query = query.filter(Trade.open_time_utc <= end_dt)
+        except ValueError:
+            pass
+
+    trades = query.all()
+
+    if not trades:
+        return {
+            "total_trades": 0,
+            "total_pips": 0.0,
+            "avg_pips_per_trade": 0.0,
+            "pip_win_rate": 0.0,
+            "avg_lot_size": 0.0,
+            "best_pip_trade": 0.0,
+            "worst_pip_trade": 0.0,
+            "pip_winners": 0,
+            "pip_losers": 0,
+        }
+
+    # Calculate metrics
+    pip_values = [t.pips for t in trades if t.pips is not None]
+    lot_sizes = [float(t.lot_size) for t in trades if t.lot_size is not None]
+
+    total_pips = sum(pip_values) if pip_values else 0.0
+    avg_pips = total_pips / len(pip_values) if pip_values else 0.0
+
+    pip_winners = [p for p in pip_values if p > 0]
+    pip_losers = [p for p in pip_values if p < 0]
+    pip_win_rate = (len(pip_winners) / len(pip_values) * 100) if pip_values else 0.0
+
+    return {
+        "total_trades": len(trades),
+        "total_pips": round(total_pips, 2),
+        "avg_pips_per_trade": round(avg_pips, 2),
+        "pip_win_rate": round(pip_win_rate, 2),
+        "avg_lot_size": round(sum(lot_sizes) / len(lot_sizes), 2) if lot_sizes else 0.0,
+        "best_pip_trade": round(max(pip_values), 2) if pip_values else 0.0,
+        "worst_pip_trade": round(min(pip_values), 2) if pip_values else 0.0,
+        "pip_winners": len(pip_winners),
+        "pip_losers": len(pip_losers),
+    }
+
+@router.get("/futures-summary")
+def get_futures_summary(
+    db: Session = Depends(get_db),
+    current = Depends(get_current_user),
+    account_id: Optional[int] = Query(None, description="Filter by account ID"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD) inclusive"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD) inclusive"),
+):
+    """
+    Get futures-specific metrics:
+    - Total ticks won/lost
+    - Average ticks per trade
+    - Win rate by ticks (separate from $ win rate)
+    - Average contracts traded
+    - Best/worst tick trades
+    - Total trades
+    - Performance by contract (ES vs NQ, etc.)
+    """
+    # Build base query for futures trades
+    query = (
+        db.query(Trade, Instrument.symbol)
+        .join(Account, Account.id == Trade.account_id)
+        .join(Instrument, Instrument.id == Trade.instrument_id)
+        .filter(Account.user_id == current.id)
+        .filter(Instrument.asset_class == 'futures')
+    )
+
+    # Apply filters
+    if account_id:
+        query = query.filter(Trade.account_id == account_id)
+
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Trade.open_time_utc >= start_dt)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            query = query.filter(Trade.open_time_utc <= end_dt)
+        except ValueError:
+            pass
+
+    results = query.all()
+
+    if not results:
+        return {
+            "total_trades": 0,
+            "total_ticks": 0.0,
+            "avg_ticks_per_trade": 0.0,
+            "tick_win_rate": 0.0,
+            "avg_contracts": 0.0,
+            "best_tick_trade": 0.0,
+            "worst_tick_trade": 0.0,
+            "tick_winners": 0,
+            "tick_losers": 0,
+            "by_contract": {},
+        }
+
+    trades = [t for t, _ in results]
+    
+    # Calculate metrics
+    tick_values = [t.ticks for t in trades if t.ticks is not None]
+    contract_counts = [t.contracts for t in trades if t.contracts is not None]
+
+    total_ticks = sum(tick_values) if tick_values else 0.0
+    avg_ticks = total_ticks / len(tick_values) if tick_values else 0.0
+
+    tick_winners = [t for t in tick_values if t > 0]
+    tick_losers = [t for t in tick_values if t < 0]
+    tick_win_rate = (len(tick_winners) / len(tick_values) * 100) if tick_values else 0.0
+
+    # Group by contract root
+    by_contract = {}
+    for trade, symbol in results:
+        if trade.ticks is None:
+            continue
+        # Extract root symbol (e.g., ES from ESH25)
+        from app.futures_utils import parse_futures_symbol
+        parsed = parse_futures_symbol(symbol)
+        if parsed:
+            root = parsed['root']
+            if root not in by_contract:
+                by_contract[root] = {
+                    "trades": 0,
+                    "total_ticks": 0.0,
+                    "avg_ticks": 0.0,
+                    "net_pnl": 0.0,
+                }
+            by_contract[root]["trades"] += 1
+            by_contract[root]["total_ticks"] += trade.ticks
+            by_contract[root]["net_pnl"] += trade.net_pnl or 0.0
+
+    # Calculate averages
+    for root in by_contract:
+        if by_contract[root]["trades"] > 0:
+            by_contract[root]["avg_ticks"] = round(by_contract[root]["total_ticks"] / by_contract[root]["trades"], 2)
+        by_contract[root]["total_ticks"] = round(by_contract[root]["total_ticks"], 2)
+        by_contract[root]["net_pnl"] = round(by_contract[root]["net_pnl"], 2)
+
+    return {
+        "total_trades": len(trades),
+        "total_ticks": round(total_ticks, 2),
+        "avg_ticks_per_trade": round(avg_ticks, 2),
+        "tick_win_rate": round(tick_win_rate, 2),
+        "avg_contracts": round(sum(contract_counts) / len(contract_counts), 2) if contract_counts else 0.0,
+        "best_tick_trade": round(max(tick_values), 2) if tick_values else 0.0,
+        "worst_tick_trade": round(min(tick_values), 2) if tick_values else 0.0,
+        "tick_winners": len(tick_winners),
+        "tick_losers": len(tick_losers),
+        "by_contract": by_contract,
+    }

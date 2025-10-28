@@ -46,6 +46,7 @@ def list_trades(
         Trade.id,
         Account.name.label("account_name"),
         Instrument.symbol.label("symbol"),
+        Instrument.asset_class.label("asset_class"),
         Trade.side,
         Trade.qty_units,
         Trade.entry_price,
@@ -54,6 +55,13 @@ def list_trades(
         Trade.close_time_utc,
         Trade.net_pnl,
         Trade.external_trade_id,
+        Trade.lot_size,
+        Trade.pips,
+        Trade.swap,
+        Trade.stop_loss,
+        Trade.take_profit,
+        Trade.contracts,
+        Trade.ticks,
     ).outerjoin(Account, Account.id == Trade.account_id).outerjoin(Instrument, Instrument.id == Trade.instrument_id)
     q = q.filter(Account.user_id == current.id)
 
@@ -146,6 +154,7 @@ def list_trades(
             id=r.id,
             account_name=r.account_name,
             symbol=r.symbol,
+            asset_class=r.asset_class,
             side=r.side,
             qty_units=r.qty_units,
             entry_price=r.entry_price,
@@ -154,6 +163,13 @@ def list_trades(
             close_time_utc=r.close_time_utc.isoformat() if r.close_time_utc else None,
             net_pnl=r.net_pnl,
             external_trade_id=r.external_trade_id,
+            lot_size=float(r.lot_size) if r.lot_size else None,
+            pips=float(r.pips) if r.pips else None,
+            swap=float(r.swap) if r.swap else None,
+            stop_loss=float(r.stop_loss) if r.stop_loss else None,
+            take_profit=float(r.take_profit) if r.take_profit else None,
+            contracts=r.contracts,
+            ticks=float(r.ticks) if r.ticks else None,
         ))
     return out
 
@@ -431,17 +447,19 @@ def get_trade_detail(trade_id: int, db: Session = Depends(get_db), current = Dep
         Trade,
         Account.name.label("account_name"),
         Instrument.symbol.label("symbol"),
+        Instrument.asset_class.label("asset_class"),
     ).join(Account, Account.id == Trade.account_id, isouter=True).join(Instrument, Instrument.id == Trade.instrument_id, isouter=True)
     q = q.filter(Trade.id == trade_id, Account.user_id == current.id)
     r = q.first()
     if not r:
         raise HTTPException(404, detail="Trade not found")
-    t, account_name, symbol = r
+    t, account_name, symbol, asset_class = r
     atts = db.query(Attachment).filter(Attachment.trade_id == t.id).order_by(Attachment.sort_order.asc(), Attachment.created_at.asc()).all()
     return TradeDetailOut(
         id=t.id,
         account_name=account_name,
         symbol=symbol,
+        asset_class=asset_class,
         side=t.side,
         qty_units=t.qty_units,
         entry_price=t.entry_price,
@@ -450,6 +468,13 @@ def get_trade_detail(trade_id: int, db: Session = Depends(get_db), current = Dep
         close_time_utc=t.close_time_utc.isoformat() if t.close_time_utc else None,
         net_pnl=t.net_pnl,
         external_trade_id=t.external_trade_id,
+        lot_size=float(t.lot_size) if t.lot_size else None,
+        pips=float(t.pips) if t.pips else None,
+        swap=float(t.swap) if t.swap else None,
+        stop_loss=float(t.stop_loss) if t.stop_loss else None,
+        take_profit=float(t.take_profit) if t.take_profit else None,
+        contracts=t.contracts,
+        ticks=float(t.ticks) if t.ticks else None,
         notes_md=t.notes_md,
         post_analysis_md=t.post_analysis_md,
         reviewed=bool(t.reviewed),

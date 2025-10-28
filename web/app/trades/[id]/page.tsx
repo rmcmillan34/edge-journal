@@ -1,5 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
+import { AssetClassBadge } from "../../../components/AssetClassBadge";
+import { formatPips, formatTicks, hasForexData, hasFuturesData } from "../../../utils/assetClass";
 
 type Attachment = {
   id: number;
@@ -16,11 +18,14 @@ type Attachment = {
   sort_order?: number | null;
 };
 type TradeDetail = {
-  id: number; account_name?: string | null; symbol?: string | null; side: string;
+  id: number; account_name?: string | null; symbol?: string | null; asset_class?: string | null; side: string;
   qty_units?: number | null; entry_price?: number | null; exit_price?: number | null;
   open_time_utc?: string | null; close_time_utc?: string | null; net_pnl?: number | null;
   external_trade_id?: string | null; notes_md?: string | null; post_analysis_md?: string | null; reviewed: boolean;
   attachments: Attachment[];
+  lot_size?: number | null; pips?: number | null; swap?: number | null;
+  stop_loss?: number | null; take_profit?: number | null;
+  contracts?: number | null; ticks?: number | null;
 };
 
 export default function TradeDetailPage({ params }:{ params: { id: string } }){
@@ -442,7 +447,14 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
           {tab === 'overview' && (
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
               <div><b>Account:</b> {data.account_name || '-'}</div>
-              <div><b>Symbol:</b> {data.symbol || '-'}</div>
+              <div>
+                <b>Symbol:</b> {data.symbol || '-'}
+                {data.asset_class && (
+                  <span style={{marginLeft: 8}}>
+                    <AssetClassBadge assetClass={data.asset_class} />
+                  </span>
+                )}
+              </div>
               <div><b>Side:</b> {data.side}</div>
               <div><b>Qty:</b> {data.qty_units ?? '-'}</div>
               <div><b>Entry:</b> {data.entry_price ?? '-'}</div>
@@ -451,6 +463,55 @@ export default function TradeDetailPage({ params }:{ params: { id: string } }){
               <div><b>Close:</b> {data.close_time_utc ?? '-'}</div>
               <div><b>Net PnL:</b> {data.net_pnl ?? '-'}</div>
               <div><b>Reviewed:</b> {data.reviewed ? 'Yes' : 'No'}</div>
+
+              {/* Forex-specific fields */}
+              {hasForexData(data) && (
+                <>
+                  <div style={{gridColumn: '1 / -1', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e5e7eb'}}>
+                    <b>Forex Details</b>
+                  </div>
+                  {data.lot_size !== null && data.lot_size !== undefined && (
+                    <div><b>Lot Size:</b> {data.lot_size} lots</div>
+                  )}
+                  {data.pips !== null && data.pips !== undefined && (
+                    <div>
+                      <b>Pips:</b>{' '}
+                      <span style={{color: (data.pips ?? 0) >= 0 ? 'green' : 'crimson'}}>
+                        {formatPips(data.pips)}
+                      </span>
+                    </div>
+                  )}
+                  {data.swap !== null && data.swap !== undefined && (
+                    <div><b>Swap:</b> ${data.swap.toFixed(2)}</div>
+                  )}
+                  {data.stop_loss !== null && data.stop_loss !== undefined && (
+                    <div><b>Stop Loss:</b> {data.stop_loss}</div>
+                  )}
+                  {data.take_profit !== null && data.take_profit !== undefined && (
+                    <div><b>Take Profit:</b> {data.take_profit}</div>
+                  )}
+                </>
+              )}
+
+              {/* Futures-specific fields */}
+              {hasFuturesData(data) && (
+                <>
+                  <div style={{gridColumn: '1 / -1', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e5e7eb'}}>
+                    <b>Futures Details</b>
+                  </div>
+                  {data.contracts !== null && data.contracts !== undefined && (
+                    <div><b>Contracts:</b> {data.contracts}</div>
+                  )}
+                  {data.ticks !== null && data.ticks !== undefined && (
+                    <div>
+                      <b>Ticks:</b>{' '}
+                      <span style={{color: (data.ticks ?? 0) >= 0 ? 'green' : 'crimson'}}>
+                        {formatTicks(data.ticks)}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
