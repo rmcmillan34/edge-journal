@@ -87,6 +87,7 @@ class TradeOut(BaseModel):
     id: int
     account_name: Optional[str]
     symbol: Optional[str]
+    asset_class: Optional[str] = None  # forex/futures/equity
     side: str
     qty_units: Optional[float]
     entry_price: Optional[float]
@@ -95,6 +96,17 @@ class TradeOut(BaseModel):
     close_time_utc: Optional[str]
     net_pnl: Optional[float]
     external_trade_id: Optional[str]
+
+    # Forex-specific fields
+    lot_size: Optional[float] = None
+    pips: Optional[float] = None
+    swap: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+
+    # Futures-specific fields
+    contracts: Optional[int] = None
+    ticks: Optional[float] = None
 
 
 class TradeCreate(BaseModel):
@@ -112,6 +124,17 @@ class TradeCreate(BaseModel):
     notes_md: Optional[str] = None
     tz: Optional[str] = None
 
+    # Forex-specific fields
+    lot_size: Optional[float] = None
+    pips: Optional[float] = None
+    swap: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+
+    # Futures-specific fields
+    contracts: Optional[int] = None
+    ticks: Optional[float] = None
+
 
 class TradeUpdate(BaseModel):
     notes_md: Optional[str] = None
@@ -119,6 +142,17 @@ class TradeUpdate(BaseModel):
     net_pnl: Optional[float] = None
     reviewed: Optional[bool] = None
     post_analysis_md: Optional[str] = None
+
+    # Forex-specific fields
+    lot_size: Optional[float] = None
+    pips: Optional[float] = None
+    swap: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+
+    # Futures-specific fields
+    contracts: Optional[int] = None
+    ticks: Optional[float] = None
 
 
 class AttachmentOut(BaseModel):

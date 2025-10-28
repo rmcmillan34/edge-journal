@@ -91,12 +91,28 @@ class Instrument(Base):
     Attributes:
         id (int): Primary key.
         symbol (str): Unique symbol of the instrument.
-        asset_class (str): Optional asset class, e.g., forex or futures.
+        asset_class (str): Asset class (forex/futures/equity).
+        pip_location (int): For forex - pip decimal location (10 for JPY, 10000 for most pairs, 100 for metals).
+        contract_size (int): For futures - number of units per contract.
+        tick_size (Numeric): For futures - minimum price increment.
+        tick_value (Numeric): For futures - dollar value per tick.
+        expiration_date (Date): For futures - contract expiration date.
+        contract_month (str): For futures - contract month code (e.g., "MAR2025", "H25").
     """
     __tablename__ = "instruments"
     id = Column(Integer, primary_key=True)
     symbol = Column(String(64), unique=True, nullable=False)
-    asset_class = Column(String(16), nullable=True)  # forex/futures (later)
+    asset_class = Column(String(16), nullable=False, default='forex', server_default='forex')  # forex/futures/equity
+
+    # Forex-specific metadata
+    pip_location = Column(Integer, nullable=True)  # 10, 100, 10000
+
+    # Futures-specific metadata
+    contract_size = Column(Integer, nullable=True)  # e.g., 50 for ES
+    tick_size = Column(Numeric(10, 6), nullable=True)  # e.g., 0.25 for ES
+    tick_value = Column(Numeric(10, 2), nullable=True)  # e.g., 12.50 for ES
+    expiration_date = Column(Date, nullable=True)
+    contract_month = Column(String(16), nullable=True)  # e.g., "MAR2025"
 
 
 # --- Trades (normalized, minimal for MVP) ---
@@ -118,6 +134,13 @@ class Trade(Base):
         gross_pnl (float): Gross profit and loss of the trade.
         fees (float): Fees associated with the trade.
         net_pnl (float): Net profit and loss of the trade.
+        lot_size (Numeric): For forex - lot size (1.0, 0.1, 0.01).
+        pips (Numeric): For forex - pip-based P&L.
+        swap (Numeric): For forex - overnight interest charges.
+        stop_loss (Numeric): For forex - stop loss price level.
+        take_profit (Numeric): For forex - take profit price level.
+        contracts (int): For futures - number of contracts.
+        ticks (Numeric): For futures - tick-based P&L.
         notes_md (str): Optional markdown notes about the trade.
         source_upload_id (int): Foreign key to the Upload model indicating the source of the trade.
         trade_key (str): Unique key for deduplication of trades.
@@ -142,6 +165,17 @@ class Trade(Base):
     gross_pnl = Column(Float, nullable=True)
     fees = Column(Float, nullable=True)
     net_pnl = Column(Float, nullable=True)
+
+    # Forex-specific fields
+    lot_size = Column(Numeric(10, 2), nullable=True)  # 1.0, 0.1, 0.01 lots
+    pips = Column(Numeric(10, 2), nullable=True)  # pip-based P&L
+    swap = Column(Numeric(10, 2), nullable=True)  # overnight interest (separate from fees)
+    stop_loss = Column(Numeric(12, 6), nullable=True)  # SL price level
+    take_profit = Column(Numeric(12, 6), nullable=True)  # TP price level
+
+    # Futures-specific fields
+    contracts = Column(Integer, nullable=True)  # number of contracts
+    ticks = Column(Numeric(10, 2), nullable=True)  # tick-based P&L
 
     notes_md = Column(String, nullable=True)
     post_analysis_md = Column(Text, nullable=True)

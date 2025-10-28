@@ -11,6 +11,20 @@ from .deps import get_optional_user, get_current_user
 from .models import Upload, Trade, Account, Instrument, MappingPreset, User
 from datetime import datetime, timezone
 from sqlalchemy import and_
+from .forex_utils import (
+    is_forex_pair,
+    detect_pip_location,
+    calculate_pips,
+    infer_lot_size_from_qty,
+)
+from .futures_utils import (
+    is_futures_symbol,
+    parse_futures_symbol,
+    get_contract_specs,
+    calculate_ticks,
+    format_contract_month,
+    get_expiration_estimate,
+)
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -25,13 +39,19 @@ PRESETS = {
             "Side": ["Type", "Side", "Direction"],
             "Open Time": ["Open", "Open Time", "Time", "Entry Time", "OpenTime"],
             "Close Time": ["Close", "Close Time", "Exit Time", "CloseTime"],
-            "Quantity": ["Volume", "Lots", "Qty"],
+            "Quantity": ["Qty", "Volume"],  # Map both Qty and Volume to Quantity
             "Entry Price": ["Open Price", "Price", "Price[1]", "Entry", "Price Open"],
             "Exit Price": ["Close Price", "Price[2]", "Exit", "Price Close"],
-            "Fees": ["Commission", "Commissions", "Swap"],
+            "Fees": ["Commission", "Commissions"],  # Separate from Swap
             "Net PnL": ["Profit", "Net PnL", "NetProfit", "Net P/L"],
             "ExternalTradeID": ["Order", "Ticket", "Position ID"],
             "Notes": ["Comment", "Notes", "Note"],
+            # Forex-specific fields
+            "Volume": ["Volume", "Lot Size", "Lots"],
+            "Pips": ["Pips", "Pip P&L"],
+            "Swap": ["Swap", "Overnight Fee"],
+            "SL": ["SL", "Stop Loss", "StopLoss"],
+            "TP": ["TP", "Take Profit", "TakeProfit"],
         },
     },
     "ctrader": {
@@ -76,13 +96,36 @@ PRESETS = {
             "Side": ["Strategy", "Action", "Side"],
             "Open Time": ["Entry time"],
             "Close Time": ["Exit time"],
-            "Quantity": ["Qty", "Quantity", "Contracts"],
+            "Quantity": ["Qty", "Quantity"],
             "Entry Price": ["Entry price"],
             "Exit Price": ["Exit price"],
             "Fees": ["Commissions", "Fees"],
             "Net PnL": ["Profit", "PnL", "Realized PnL"],
             "ExternalTradeID": ["Trade #", "Order ID"],
             "Notes": ["Notes", "Comment"],
+            # Futures-specific fields
+            "Contracts": ["Contracts", "Qty", "Quantity"],
+            "Ticks": ["Ticks", "Points"],
+        },
+    },
+    "tradovate": {
+        "match": {"Contract", "Buy/Sell", "Exec Time"},
+        "map": {
+            "Account": ["Account", "Account Name"],
+            "Symbol": ["Contract", "Instrument"],
+            "Side": ["Buy/Sell", "B/S", "Side"],
+            "Open Time": ["Exec Time", "Entry Time", "Time"],
+            "Close Time": ["Exit Time", "Close Time"],
+            "Quantity": ["Qty"],
+            "Entry Price": ["Price", "Entry Price", "Fill Price"],
+            "Exit Price": ["Exit Price", "Close Price"],
+            "Fees": ["Fees", "Commission"],
+            "Net PnL": ["Realized P&L", "Net P/L", "PnL"],
+            "ExternalTradeID": ["Order ID", "ID"],
+            "Notes": ["Notes"],
+            # Futures-specific fields
+            "Contracts": ["Qty", "Contracts"],
+            "Ticks": ["Ticks", "Points"],
         },
     },
 }
@@ -270,9 +313,63 @@ def _build_trade_key(acct: str, sym: str, side: str, ot: str, qty: str, entry: s
 def _get_or_create_instrument(db: Session, symbol: str) -> Instrument:
     inst = db.query(Instrument).filter(Instrument.symbol == symbol).first()
     if inst:
+        # Update asset_class if not set
+        if not inst.asset_class:
+            if is_futures_symbol(symbol):
+                inst.asset_class = 'futures'
+                # Set futures metadata
+                parsed = parse_futures_symbol(symbol)
+                if parsed:
+                    inst.contract_month = format_contract_month(symbol)
+                    inst.expiration_date = get_expiration_estimate(symbol)
+                    specs = get_contract_specs(parsed['root'])
+                    if specs:
+                        inst.contract_size = specs['contract_size']
+                        inst.tick_size = specs['tick_size']
+                        inst.tick_value = specs['tick_value']
+                db.flush()
+            elif is_forex_pair(symbol):
+                inst.asset_class = 'forex'
+                inst.pip_location = detect_pip_location(symbol)
+                db.flush()
         return inst
-    inst = Instrument(symbol=symbol, asset_class=None)
-    db.add(inst); db.flush()
+
+    # Create new instrument - detect asset class
+    asset_class = 'equity'  # default
+    pip_loc = None
+    contract_size = None
+    tick_size = None
+    tick_value = None
+    contract_month = None
+    expiration_date = None
+
+    if is_futures_symbol(symbol):
+        asset_class = 'futures'
+        parsed = parse_futures_symbol(symbol)
+        if parsed:
+            contract_month = format_contract_month(symbol)
+            expiration_date = get_expiration_estimate(symbol)
+            specs = get_contract_specs(parsed['root'])
+            if specs:
+                contract_size = specs['contract_size']
+                tick_size = specs['tick_size']
+                tick_value = specs['tick_value']
+    elif is_forex_pair(symbol):
+        asset_class = 'forex'
+        pip_loc = detect_pip_location(symbol)
+
+    inst = Instrument(
+        symbol=symbol,
+        asset_class=asset_class,
+        pip_location=pip_loc,
+        contract_size=contract_size,
+        tick_size=tick_size,
+        tick_value=tick_value,
+        contract_month=contract_month,
+        expiration_date=expiration_date,
+    )
+    db.add(inst)
+    db.flush()
     return inst
 
 def _get_or_create_account(db: Session, name: str, user_id: int | None = None) -> Account:
@@ -382,6 +479,17 @@ async def commit_csv(
             extid = (row.get(final_map.get("ExternalTradeID",""), "") or "").strip()
             notes = (row.get(final_map.get("Notes",""), "") or "").strip()
 
+            # Forex-specific fields
+            lot_size_str = (row.get(final_map.get("Lot Size",""), "") or row.get(final_map.get("Volume",""), "") or "").strip()
+            pips_str = (row.get(final_map.get("Pips",""), "") or "").strip()
+            swap_str = (row.get(final_map.get("Swap",""), "") or "").strip()
+            stop_loss_str = (row.get(final_map.get("Stop Loss",""), "") or row.get(final_map.get("SL",""), "") or "").strip()
+            take_profit_str = (row.get(final_map.get("Take Profit",""), "") or row.get(final_map.get("TP",""), "") or "").strip()
+
+            # Futures-specific fields
+            contracts_str = (row.get(final_map.get("Contracts",""), "") or "").strip()
+            ticks_str = (row.get(final_map.get("Ticks",""), "") or "").strip()
+
             open_dt = _parse_dt(open_time_str, tz)
             close_dt = _parse_dt(close_time_str, tz) if close_time_str else None
 
@@ -390,6 +498,17 @@ async def commit_csv(
             exit_f  = _parse_number(exitp)
             fees_f  = _parse_number(fees)
             net_f   = _parse_number(net)
+
+            # Parse forex fields
+            lot_size_direct = _parse_number(lot_size_str)
+            pips_f = _parse_number(pips_str)
+            swap_f = _parse_number(swap_str)
+            stop_loss_f = _parse_number(stop_loss_str)
+            take_profit_f = _parse_number(take_profit_str)
+
+            # Parse futures fields
+            contracts_f = int(_parse_number(contracts_str)) if contracts_str and _parse_number(contracts_str) else None
+            ticks_f = _parse_number(ticks_str)
 
             # Resolve account row → model
             acct = None
@@ -414,6 +533,43 @@ async def commit_csv(
 
             inst = _get_or_create_instrument(db, symbol) if symbol else None
 
+            # Smart fallback for lot_size and pip calculation for forex trades
+            lot_size_final = None
+            pips_final = pips_f
+            contracts_final = contracts_f
+            ticks_final = ticks_f
+
+            if inst and inst.asset_class == 'forex':
+                # Lot size: use direct value or calculate from qty_units
+                if lot_size_direct is not None:
+                    lot_size_final = lot_size_direct
+                elif qty_f is not None:
+                    lot_size_final = infer_lot_size_from_qty(qty_f, symbol)
+
+                # Pips: calculate if not provided and we have entry/exit prices
+                if pips_final is None and entry_f is not None and exit_f is not None:
+                    pips_final = calculate_pips(
+                        symbol,
+                        entry_f,
+                        exit_f,
+                        side,
+                        inst.pip_location
+                    )
+
+            elif inst and inst.asset_class == 'futures':
+                # Contracts: use qty_units if contracts not provided
+                if contracts_final is None and qty_f is not None:
+                    contracts_final = int(qty_f)
+
+                # Ticks: calculate if not provided and we have entry/exit prices
+                if ticks_final is None and entry_f is not None and exit_f is not None and inst.tick_size:
+                    ticks_final = calculate_ticks(
+                        entry_f,
+                        exit_f,
+                        side,
+                        float(inst.tick_size)
+                    )
+
             existing = db.query(Trade).filter(Trade.trade_key == trade_key).first()
             if existing:
                 existing.exit_price = exit_f
@@ -422,6 +578,15 @@ async def commit_csv(
                 existing.net_pnl = net_f
                 existing.notes_md = notes or existing.notes_md
                 existing.external_trade_id = extid or existing.external_trade_id
+                # Update forex fields
+                existing.lot_size = lot_size_final
+                existing.pips = pips_final
+                existing.swap = swap_f
+                existing.stop_loss = stop_loss_f
+                existing.take_profit = take_profit_f
+                # Update futures fields
+                existing.contracts = contracts_final
+                existing.ticks = ticks_final
                 updated += 1
             else:
                 db.add(Trade(
@@ -441,6 +606,15 @@ async def commit_csv(
                     source_upload_id=upload.id,
                     trade_key=trade_key,
                     version=1,
+                    # Forex fields
+                    lot_size=lot_size_final,
+                    pips=pips_final,
+                    swap=swap_f,
+                    stop_loss=stop_loss_f,
+                    take_profit=take_profit_f,
+                    # Futures fields
+                    contracts=contracts_final,
+                    ticks=ticks_final,
                 ))
                 inserted += 1
 

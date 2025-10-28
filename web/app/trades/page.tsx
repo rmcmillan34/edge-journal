@@ -2,12 +2,17 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FilterBuilder, FilterChips, FilterDSL } from "../components/filters";
+import { AssetClassBadge } from "../../components/AssetClassBadge";
+import { formatPips } from "../../utils/assetClass";
 
 type Trade = {
-  id: number; account_name?: string | null; symbol?: string | null; side: string;
+  id: number; account_name?: string | null; symbol?: string | null; asset_class?: string | null; side: string;
   qty_units?: number | null; entry_price?: number | null; exit_price?: number | null;
   open_time_utc: string; close_time_utc?: string | null; net_pnl?: number | null;
   external_trade_id?: string | null;
+  lot_size?: number | null; pips?: number | null; swap?: number | null;
+  stop_loss?: number | null; take_profit?: number | null;
+  contracts?: number | null; ticks?: number | null;
 };
 
 export default function TradesPage(){
@@ -378,14 +383,28 @@ function TradesView(){
     (!gradeFilter || (gradesMap[t.id] || '') === gradeFilter) && <tr key={t.id}>
       <td><input type="checkbox" checked={selected.includes(t.id)} onChange={e=>toggleSelect(t.id, e.target.checked)} /></td>
       <td>{t.account_name || '-'}</td>
-      <td><a href={`/trades/${t.id}`}>{t.symbol || '-'}</a></td>
+      <td>
+        <div style={{display:'flex', flexDirection:'column', gap:'4px'}}>
+          <a href={`/trades/${t.id}`}>{t.symbol || '-'}</a>
+          <AssetClassBadge assetClass={t.asset_class} />
+        </div>
+      </td>
       <td>{t.side}</td>
       <td>{t.qty_units ?? '-'}</td>
       <td>{t.entry_price ?? '-'}</td>
       <td>{t.exit_price ?? '-'}</td>
       <td>{fmtDate(t.open_time_utc)}</td>
       <td>{fmtDate(t.close_time_utc)}</td>
-      <td style={{color:(t.net_pnl ?? 0) >=0 ? 'green':'crimson'}}>{t.net_pnl ?? '-'}</td>
+      <td>
+        <div style={{display:'flex', flexDirection:'column', gap:'2px'}}>
+          <span style={{color:(t.net_pnl ?? 0) >=0 ? 'green':'crimson'}}>{t.net_pnl ?? '-'}</span>
+          {t.pips !== null && t.pips !== undefined && (
+            <span style={{fontSize:'0.85em', color:(t.pips ?? 0) >=0 ? 'green':'crimson'}}>
+              {formatPips(t.pips)}
+            </span>
+          )}
+        </div>
+      </td>
       <td>{gradesMap[t.id] || '-'}</td>
     </tr>
   )).filter(Boolean), [items, selected, displayTz, gradeFilter, gradesMap]);
